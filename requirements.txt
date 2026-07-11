@@ -1,0 +1,14 @@
+# 2PACF pipeline dependencies.
+#
+# joblib and tqdm/tqdm_joblib have been deliberately REMOVED: the
+# parallel bootstrap stage and progress reporting now use only the
+# Python standard library (concurrent.futures), see hpc_utils.py.
+# This means one less thing that can fail to install/import in a
+# constrained HPC module/conda environment.
+
+numpy>=1.24
+scipy>=1.10
+astropy>=5.3
+photutils>=1.9
+pandas>=2.0
+matplotlib>=3.7
