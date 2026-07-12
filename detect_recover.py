@@ -20,7 +20,7 @@ from scipy.spatial import cKDTree
 
 # Source detection (mimics SExtractor-style segmentation)
 def detect_in_image(data, weight, psf_kernel, background_median=None, nsigma=2.0,
-                     npixels=5, deblend=True, deblend_nlevels=32, deblend_contrast=0.001):
+                     npixels=5, deblend=False, deblend_nlevels=32, deblend_contrast=0.001):
     """
     Detect sources in data above a per-pixel threshold derived from
     the LOCAL background RMS (from the weight/RMS map), using
@@ -54,13 +54,21 @@ def detect_in_image(data, weight, psf_kernel, background_median=None, nsigma=2.0
     undefined per-pixel error -- reproducing the survey's true
     footprint requires excluding both cases.
 
-    After segmentation, sources are deblended with
-    photutils.deblend_sources() by default. Skipping deblending makes
-    two adjacent fake sources (or a fake source injected on top of/
-    next to a real one) register as a single blended detection, which
-    silently INVERTS the completeness trend in crowded regions (dense
-    regions look artificially incomplete rather than genuinely
-    incomplete), biasing the depth-aware random catalog.
+    Optionally (deblend=True), sources are deblended with
+    photutils.deblend_sources(). Skipping deblending makes two adjacent
+    fake sources (or a fake source injected on top of/next to a real
+    one) register as a single blended detection, which can bias the
+    completeness trend in crowded regions. HOWEVER deblending is
+    expensive -- it re-thresholds EVERY detected segment at
+    `deblend_nlevels` sub-levels, and detect_in_image runs on the full
+    injected image (i.e. every real source already in the field, not
+    just the injected fakes). On a real, crowded mosaic this can turn
+    a few-second detection step into many minutes PER ROUND, or stall
+    entirely on one large/bright segment (e.g. a saturated star). It
+    therefore defaults to OFF (deblend=False) here; turn it on only if
+    blending is demonstrably biasing your completeness/random catalog,
+    and consider lowering deblend_nlevels (e.g. 8-16) and/or capping
+    segment size first if you do.
     """
     from astropy.convolution import convolve
 

@@ -49,24 +49,18 @@ bug in the Limber transform -- doesn't require regenerating the random
 catalog or recomputing pair counts. Set FORCE_REGENERATE_RANDOM /
 FORCE_RECOMPUTE_PAIRS to True (or delete the cache files) whenever you
 actually change injection, detection, or catalog selection.
-
-HPC / Pegasus note
--------------------
-The bootstrap-error stage (inside compute_acf_and_bias, via
-acf_estimator.bootstrap_errors) is parallelized across CPU cores using
-only the Python standard library (concurrent.futures), NOT joblib --
-see hpc_utils.py for why joblib/tqdm are a poor fit for a SLURM batch
-job. Progress is reported as plain print() lines rather than a
-redrawing tqdm bar, so it stays readable in a SLURM .out log file. See
-submit_pegasus.slurm for a ready-to-edit batch script.
 """
 import os
-import time
 import warnings
 import numpy as np
 import pandas as pd
 from astropy.io import fits
 from astropy.wcs import WCS
+from tqdm import tqdm
+import sys
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+SHOW_PROGRESS = sys.stdout.isatty()
 
 from inject_sources import inject_fake_sources, get_psf_kernel
 from detect_recover import detect_in_image, match_recovered, apply_selection_cut
@@ -78,10 +72,12 @@ from acf_estimator import (
     fit_power_law_mle,
     limber_transform_Aw_to_r0,
     galaxy_bias,
-    propagate_r0_and_bias_errors,
 )
-from hpc_utils import get_n_workers, log_progress
 
+INPUT_DIR = os.path.join(BASE_DIR, "..", "inputs")
+OUTPUT_DIR = os.path.join(BASE_DIR, "..", "outputs")
+RANDOM_DIR = os.path.join(BASE_DIR, "..", "random_catalogs")
+PAIR_DIR = os.path.join(BASE_DIR, "..", "pair_counts")
 
 # Load real images
 def load_field(science_path, weight_path, verbose=False):
@@ -101,27 +97,25 @@ def load_field(science_path, weight_path, verbose=False):
     with fits.open(weight_path) as hdul:
         if verbose:
             hdul.info()
-        wht_hdu = None
         for ext_name in ("WHT", "RMS", "ERR", "WEIGHT"):
             try:
                 wht_hdu = hdul[ext_name]
                 break
             except KeyError:
                 continue
-        if wht_hdu is None:
+        else:
             wht_hdu = hdul[1]  # last-resort fallback
         weight_data = wht_hdu.data.astype(float)
-
+ 
     if weight_data.shape != science_data.shape:
         raise ValueError(f"Shape mismatch: science {science_data.shape} vs "
                          f"weight {weight_data.shape} for {science_path}")
 
     return science_data, weight_data, wcs, zeropoint_ab
 
-
 # One injection-and-recovery round
-def _one_injection_round(science_data, weight_data, zeropoint_ab, psf_kernel,
-                          n_inject, z_drop, M_UV_range, M_UV_cut, rng):
+def _one_injection_round(science_data, weight_data, zeropoint_ab, psf_kernel, 
+                        n_inject, z_drop, M_UV_range, M_UV_cut, rng):
 
     injected_data, truth = inject_fake_sources(science_data, weight_data, zeropoint_ab,
                                                psf_kernel, n_inject, z_drop, M_UV_range, rng)
@@ -134,25 +128,21 @@ def _one_injection_round(science_data, weight_data, zeropoint_ab, psf_kernel,
 
 
 # Build the full random catalog to the target size
-def build_random_catalog(science_data, weight_data, wcs, zeropoint_ab,
-                         psf_fwhm_pix, n_target, z_drop, M_UV_range,
+def build_random_catalog(science_data, weight_data, wcs, zeropoint_ab, 
+                         psf_fwhm_pix, n_target, z_drop, M_UV_range, 
                          M_UV_cut, rng, psf_fits_path=None, n_inject_per_round=2000, max_rounds=200):
     """
     Repeatedly injects and recovers fake sources until n_target random
     points have survived detection + selection, then returns their sky
     coordinates (RA, Dec).
-
-    Rounds are run sequentially (not parallelized across processes):
-    each round mutates/copies the full science image (potentially a
-    multi-hundred-MB to multi-GB array), so shipping that array to N
-    worker processes via pickling would cost far more memory and I/O
-    than the compute it would save. The genuinely embarrassingly-
-    parallel, cheap-to-pickle stage is the bootstrap resampling in
-    acf_estimator.bootstrap_errors, which IS parallelized.
     """
     xs_kept, ys_kept = [], []
     n_have = 0
-    t0 = time.time()
+
+    if SHOW_PROGRESS:
+        pbar = tqdm(total=n_target, desc="Building random catalog", unit="galaxy", dynamic_ncols=True)
+    else:
+        pbar = None
 
     psf_file = psf_fits_path if (psf_fits_path and os.path.exists(psf_fits_path)) else None
     psf_kernel = get_psf_kernel(psf_fwhm_pix=psf_fwhm_pix, psf_file=psf_file)
@@ -167,17 +157,15 @@ def build_random_catalog(science_data, weight_data, wcs, zeropoint_ab,
         new_recovered = len(x_round)
         n_have += new_recovered
 
-        print(f"[random catalog] round {round_i + 1}/{max_rounds}: "
-              f"+{new_recovered} recovered, {n_have}/{n_target} total "
-              f"(elapsed {time.time() - t0:.1f}s)", flush=True)
+        if pbar is not None:
+            pbar.update(new_recovered)
+            pbar.set_postfix({"round": round_i+1, "recovered": f"{n_have}/{n_target}", "New": new_recovered,
+                              "Eff": f"{100*new_recovered/n_inject_per_round:.2f}%"})
 
         if n_have >= n_target:
             break
-    else:
-        warnings.warn(f"build_random_catalog: reached max_rounds={max_rounds} with only "
-                       f"{n_have}/{n_target} random points recovered. Consider raising "
-                       f"max_rounds or n_inject_per_round.")
-
+    if pbar is not None:    
+        pbar.close()
     x_all = np.concatenate(xs_kept)[:n_target]
     y_all = np.concatenate(ys_kept)[:n_target]
 
@@ -202,8 +190,7 @@ def get_random_catalog(cache_path, force_regenerate, science_data, weight_data, 
     print("Building depth-aware random catalog via injection-recovery...")
     ra_rand, dec_rand = build_random_catalog(
         science_data, weight_data, wcs, zeropoint_ab,
-        psf_fwhm_pix, n_target, z_drop, M_UV_range, M_UV_cut, rng,
-        psf_fits_path=psf_fits_path,
+        psf_fwhm_pix, n_target, z_drop, M_UV_range, M_UV_cut, rng, psf_fits_path=psf_fits_path
     )
     random_catalog = np.column_stack((ra_rand, dec_rand))
     np.savetxt(cache_path, random_catalog, fmt="%.8f",
@@ -230,7 +217,6 @@ def compute_acf_and_bias(ra_data, dec_data, ra_rand, dec_rand, z_central, N_z_fu
       5. Maximum-likelihood fit for A_w  [Eq. 4-5]
       6. Limber transform A_w -> r_0  [Eq. 6, Adelberger et al. 2005]
       7. Galaxy bias b = sigma_8,g / sigma_8(z)  [Eq. 7]
-      8. Linear error propagation of A_w_err into r_0/sigma_8,g/bias
 
     Returns a dict with every intermediate quantity, not just the
     final bias, so each step can be inspected/sanity-checked.
@@ -241,9 +227,6 @@ def compute_acf_and_bias(ra_data, dec_data, ra_rand, dec_rand, z_central, N_z_fu
     require recomputing them. Set force_recompute_pairs=True whenever
     ra_data/dec_data or ra_rand/dec_rand actually change.
     """
-    if rng is None:
-        rng = np.random.default_rng()
-
     theta_bins = np.arange(theta_min_arcsec, theta_max_arcsec + bin_width_arcsec, bin_width_arcsec)
     theta_centers = 0.5 * (theta_bins[:-1] + theta_bins[1:])
 
@@ -256,9 +239,9 @@ def compute_acf_and_bias(ra_data, dec_data, ra_rand, dec_rand, z_central, N_z_fu
         cached = np.load(pair_counts_cache_path)
         DD, DR, RR = cached["DD"], cached["DR"], cached["RR"]
     else:
-        DD = pair_counts(ra_data, dec_data, ra_data, dec_data, theta_bins, same_catalog=True, show_progress=True)
-        DR = pair_counts(ra_data, dec_data, ra_rand, dec_rand, theta_bins, show_progress=True)
-        RR = pair_counts(ra_rand, dec_rand, ra_rand, dec_rand, theta_bins, same_catalog=True, show_progress=True)
+        DD = pair_counts(ra_data, dec_data, ra_data, dec_data, theta_bins, same_catalog=True, show_progress=SHOW_PROGRESS)
+        DR = pair_counts(ra_data, dec_data, ra_rand, dec_rand, theta_bins, show_progress=SHOW_PROGRESS)
+        RR = pair_counts(ra_rand, dec_rand, ra_rand, dec_rand, theta_bins, same_catalog=True, show_progress=SHOW_PROGRESS)
         if pair_counts_cache_path is not None:
             np.savez(pair_counts_cache_path, DD=DD, DR=DR, RR=RR)
             print(f"Pair counts saved as {pair_counts_cache_path}")
@@ -279,20 +262,15 @@ def compute_acf_and_bias(ra_data, dec_data, ra_rand, dec_rand, z_central, N_z_fu
         r0_h_inv_mpc, gamma, z_central, cosmo, sigma8_0=sigma8_0
     )
 
-    r0_err, sigma8_g_err, bias_err = propagate_r0_and_bias_errors(
-        A_w, A_w_err, r0_h_inv_mpc, gamma, sigma8_g, bias
-    )
-
     return {
         "theta_centers": theta_centers, "theta_bins": theta_bins,
         "DD": DD, "DR": DR, "RR": RR,
         "w_obs": w_obs, "w_err": w_err,
         "ic_over_Aw": ic_over_Aw, "A_w": A_w, "A_w_err": A_w_err,
-        "r0_h_inv_mpc": r0_h_inv_mpc, "r0_err": r0_err,
+        "r0_h_inv_mpc": r0_h_inv_mpc,
         "gamma": gamma,
-        "sigma8_g": sigma8_g, "sigma8_g_err": sigma8_g_err,
-        "sigma8_z": sigma8_z,
-        "bias": bias, "bias_err": bias_err,
+        "sigma8_g": sigma8_g, "sigma8_z": sigma8_z,
+        "bias": bias,
     }
 
 
@@ -300,22 +278,20 @@ def compute_acf_and_bias(ra_data, dec_data, ra_rand, dec_rand, z_central, N_z_fu
 # Example end-to-end usage
 # ---------------------------------------------------------------------
 if __name__ == "__main__":
-    print(f"[hpc_utils] detected {get_n_workers()} usable worker process(es) "
-          f"for parallel bootstrap (SLURM_CPUS_PER_TASK etc. if set, else os.cpu_count()).")
-
     rng = np.random.default_rng(42)
 
     # --- user-editable paths / parameters ---
-    SCIENCE_FITS = "inputs/hlsp_ceers_jwst_nircam_fullceers_f277w_v1_sci.fits.gz"
-    WEIGHT_FITS = "inputs/hlsp_ceers_jwst_nircam_fullceers_f277w_v1_wht.fits.gz"
-    PSF_FITS = "inputs/psf_F277W.fits"
+    SCIENCE_FITS = os.path.join(INPUT_DIR, "hlsp_ceers_jwst_nircam_fullceers_f277w_v1_sci.fits.gz")
+    WEIGHT_FITS = os.path.join(INPUT_DIR, "hlsp_ceers_jwst_nircam_fullceers_f277w_v1_wht.fits.gz")
+    PSF_FITS = os.path.join(INPUT_DIR, "psf_F277W.fits")
     PSF_FWHM_PIX = 3.0          # Approximate JWST/NIRCam F277W Gaussian PSF FWHM (pixels)
     Z_DROP = 5.5
     M_UV_RANGE = (-24.0, -15.0)
     M_UV_CUT = -15.0
-
-    # import data file
-    data_file = pd.read_csv(f"inputs/CEERS_z{Z_DROP}_selected.csv")        # Data file
+    
+    # import data file 
+    DATA_CSV = os.path.join(INPUT_DIR, f"CEERS_z{Z_DROP}_selected.csv")
+    data_file = pd.read_csv(DATA_CSV)        # Data file
     N_RANDOM_TARGET = 20 * len(data_file)  # N_r = 20 * N_d, per Sec. 4
 
     # --- caching controls ---
@@ -323,32 +299,36 @@ if __name__ == "__main__":
     # when injection/detection settings or the input catalogs actually
     # change. Leave False when only touching the fitting/Limber/bias
     # code downstream -- this is what makes iteration fast.
-    RANDOM_CATALOG_CACHE = f"random_catalogs/random_catalog_z{Z_DROP}.txt"
-    PAIR_COUNTS_CACHE = f"pair_counts/pair_counts_z{Z_DROP}.npz"
+
+    os.makedirs(RANDOM_DIR, exist_ok=True)
+    os.makedirs(PAIR_DIR, exist_ok=True)
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    os.makedirs(os.path.join(OUTPUT_DIR, "plots"), exist_ok=True)
+
+    RANDOM_CATALOG_CACHE = os.path.join(RANDOM_DIR, f"random_catalog_z{Z_DROP}.txt")
+    PAIR_COUNTS_CACHE = os.path.join(PAIR_DIR, f"pair_counts_z{Z_DROP}.npz")
     FORCE_REGENERATE_RANDOM = False
     FORCE_RECOMPUTE_PAIRS = False
 
     # Real LBG catalog positions (RA, Dec in degrees) -- load your own
-    # selected sample here.
+    # selected sample here. Placeholder arrays shown for structure only.
+
     ra_data = data_file["RA"].to_numpy()
-    dec_data = data_file["DEC"].to_numpy()
+    dec_data = data_file["DEC"].to_numpy()    
 
     # Only load FITS images and run injection if we actually need to
     # regenerate the random catalog -- loading multi-GB science/weight
     # images just to immediately discard them wastes time too.
     if os.path.exists(RANDOM_CATALOG_CACHE) and not FORCE_REGENERATE_RANDOM:
-        ra_rand, dec_rand = get_random_catalog(
-            RANDOM_CATALOG_CACHE, FORCE_REGENERATE_RANDOM,
-            None, None, None, None, None, None, None, None, None, rng,
-        )
+        ra_rand, dec_rand = get_random_catalog(RANDOM_CATALOG_CACHE, FORCE_REGENERATE_RANDOM, science_data=None,
+                                               weight_data=None,wcs=None, zeropoint_ab=None, psf_fwhm_pix=None, 
+                                               n_target=None, z_drop=None, M_UV_range=None, M_UV_cut=None, 
+                                               rng=rng, psf_fits_path=None)
     else:
         science_data, weight_data, wcs, zeropoint_ab = load_field(SCIENCE_FITS, WEIGHT_FITS)
-        ra_rand, dec_rand = get_random_catalog(
-            RANDOM_CATALOG_CACHE, FORCE_REGENERATE_RANDOM,
-            science_data, weight_data, wcs, zeropoint_ab, PSF_FWHM_PIX,
-            N_RANDOM_TARGET, Z_DROP, M_UV_RANGE, M_UV_CUT, rng,
-            psf_fits_path=PSF_FITS,
-        )
+        ra_rand, dec_rand = get_random_catalog(RANDOM_CATALOG_CACHE, FORCE_REGENERATE_RANDOM, science_data, 
+                                               weight_data, wcs, zeropoint_ab, PSF_FWHM_PIX, N_RANDOM_TARGET, 
+                                               Z_DROP, M_UV_RANGE, M_UV_CUT, rng, psf_fits_path=PSF_FITS,)
 
     # --- Cosmology and N(z), needed for the Limber transform (Eq. 6) ---
     from astropy.cosmology import FlatLambdaCDM
@@ -364,45 +344,53 @@ if __name__ == "__main__":
         # process used for the random catalog, per Sec. 4.1.2.
         return np.exp(-0.5 * ((z - z0) / sigma_z) ** 2)
 
-    results = compute_acf_and_bias(
-        ra_data, dec_data, ra_rand, dec_rand,
-        z_central=Z_DROP, N_z_func=N_z, cosmo=cosmo, h=0.678,
-        rng=rng,
-        pair_counts_cache_path=PAIR_COUNTS_CACHE,
-        force_recompute_pairs=FORCE_RECOMPUTE_PAIRS,
-    )
+    results = compute_acf_and_bias(ra_data, dec_data, ra_rand, dec_rand, z_central=Z_DROP, 
+                                   N_z_func=N_z, cosmo=cosmo, h=0.678, rng=rng, pair_counts_cache_path=PAIR_COUNTS_CACHE,
+                                   force_recompute_pairs=FORCE_RECOMPUTE_PAIRS,)
     print("A_w =", results["A_w"], "+/-", results["A_w_err"])
     print("IC/A_w =", results["ic_over_Aw"])
-    print("r_0 =", results["r0_h_inv_mpc"], "+/-", results["r0_err"], "h^-1 Mpc")
-    print("sigma_8,g =", results["sigma8_g"], "+/-", results["sigma8_g_err"])
+    print("r_0 =", results["r0_h_inv_mpc"], "h^-1 Mpc")
+    print("sigma_8,g =", results["sigma8_g"])
     print("sigma_8(z) =", results["sigma8_z"])
-    print("galaxy bias b =", results["bias"], "+/-", results["bias_err"])
+    print("galaxy bias b =", results["bias"])
+
+
 
     # Plotting
-    import matplotlib
-    matplotlib.use("Agg")  # HPC compute nodes have no display -- write straight to file
     import matplotlib.pyplot as plt
-
     theta, w, err, beta = results["theta_centers"], results["w_obs"], results["w_err"], 0.6
     theta_fit = np.linspace(theta.min(), theta.max(), 300)
-    w_fit = results["A_w"] * theta_fit ** (-beta)
+    w_fit = results["A_w"] * theta_fit**(-beta)
 
     fig, ax = plt.subplots(1, 1, figsize=(8, 5), constrained_layout=True)
 
-    ax.errorbar(theta, w, yerr=err, fmt='o', color='black',
-                markersize=5, capsize=3, label='Measured $w(\\theta)$')
+    # ax[0].scatter(ra_rand, dec_rand, s=2, color="royalblue")
+    # ax[0].set_xlabel("RA (deg)", fontsize=12)
+    # ax[0].set_ylabel("DEC (deg)", fontsize=12)
+    # ax[0].set_title("Random Catalog", fontsize=14)
+    # ax[0].grid(alpha=0.3)
+    # ax[0].invert_xaxis()    # Astronomical convention 
 
+    ax.errorbar(theta, w, yerr=err, fmt='o', color='black', 
+                   markersize=5, capsize=3,label='Measured $w(\\theta)$')
+
+    # Plot fitted power law only if positive
     if results["A_w"] > 0:
         ax.plot(theta_fit, w_fit, color='red', linewidth=2,
-                label=r'Best fit: $A_w\theta^{-0.6}$')
-    ax.axhline(y=0, color='k', linestyle='--', linewidth=1)
+                    label=r'Best fit: $A_w\theta^{-0.6}$')
+    ax.axhline(y=0, color='k', linestyle='--', linewidth=1)   
+    # ax.set_xscale("log")
+    # if np.all(w > 0):
+    #     ax.set_yscale("log")
     ax.set_xlabel("Angular Separation (arcsec)", fontsize=12)
     ax.set_ylabel(r"$w(\theta)$", fontsize=12)
     ax.set_title("Angular Two-Point Correlation Function", fontsize=14)
     ax.grid(True, which="both", alpha=0.3)
     ax.legend()
+    # Display fitted amplitude
     ax.text(
-        0.05, 0.95,
+        0.05,
+        0.95,
         rf"$A_w = {results['A_w']:.4f}$" "\n"
         rf"$\sigma(A_w) = {results['A_w_err']:.4f}$" "\n"
         rf"$\beta = {beta}$",
@@ -411,6 +399,6 @@ if __name__ == "__main__":
         verticalalignment="top",
         bbox=dict(facecolor="white", edgecolor="black")
     )
-
-    plt.savefig(f"outputs/results_z{Z_DROP}.png", dpi=300, bbox_inches="tight")
-    print(f"Plot saved to outputs/results_z{Z_DROP}.png")
+   
+    plt.savefig(os.path.join(OUTPUT_DIR, "plots", f"results_z{Z_DROP}.png"), dpi=300, bbox_inches="tight")
+    plt.show()
