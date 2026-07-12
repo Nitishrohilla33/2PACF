@@ -159,13 +159,16 @@ def build_random_catalog(science_data, weight_data, wcs, zeropoint_ab,
 
         if pbar is not None:
             pbar.update(new_recovered)
-            pbar.set_postfix({"round": round_i+1, "recovered": f"{n_have}/{n_target}", "New": new_recovered,
+            pbar.set_postfix({"round": round_i+1, "recovered": f"{n_have}/{n_target}", "Recovered": new_recovered,
                               "Eff": f"{100*new_recovered/n_inject_per_round:.2f}%"})
 
         if n_have >= n_target:
             break
     if pbar is not None:    
         pbar.close()
+    if n_have < n_target:
+        raise RuntimeError(f"Random catalog incomplete: recovered"
+                           f"{n_have}/{n_target} after {max_rounds} rounds.")    
     x_all = np.concatenate(xs_kept)[:n_target]
     y_all = np.concatenate(ys_kept)[:n_target]
 
@@ -401,4 +404,5 @@ if __name__ == "__main__":
     )
    
     plt.savefig(os.path.join(OUTPUT_DIR, "plots", f"results_z{Z_DROP}.png"), dpi=300, bbox_inches="tight")
-    plt.show()
+    if SHOW_PROGRESS:
+        plt.show()
