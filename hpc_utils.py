@@ -42,34 +42,21 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 
 def get_n_workers(default=None):
     """
-    Determine how many worker processes to use, respecting the batch
-    scheduler's actual CPU allocation for this job rather than blindly
+    Determine how many worker processes to use, respecting SLURM's
+    actual CPU allocation for this job/task rather than blindly
     calling os.cpu_count().
 
     os.cpu_count() reports the PHYSICAL core count of the node, not
-    the number of cores the scheduler actually granted this job. On a
-    shared HPC node running several jobs at once, spawning
-    os.cpu_count() workers is exactly the kind of CPU-oversubscription
-    that causes a job to thrash and run slower than serial.
+    the number of cores SLURM actually granted this job. On a shared
+    HPC node running several jobs at once, spawning os.cpu_count()
+    workers is exactly the kind of CPU-oversubscription that causes
+    a job to thrash and run slower than serial.
 
-    Checked, in order:
-      - SLURM_CPUS_PER_TASK, SLURM_JOB_CPUS_PER_NODE, SLURM_CPUS_ON_NODE
-        (SLURM clusters)
-      - NCPUS
-        (PBS Professional -- e.g. IUCAA Pegasus. PBS Pro sets this
-        automatically from the job's `-l select=1:ncpus=N` request)
-      - PBS_NP
-        (some Torque/OpenPBS configs set this to the total procs
-        across all chunks/nodes)
-      - number of lines in the file at $PBS_NODEFILE
-        (Torque/OpenPBS fallback: one line per allocated CPU slot,
-        present even if NCPUS/PBS_NP aren't set)
-      - os.cpu_count()
-        (final fallback for interactive/laptop use outside any
-        scheduler)
+    Checks, in order of specificity: SLURM_CPUS_PER_TASK,
+    SLURM_JOB_CPUS_PER_NODE, SLURM_CPUS_ON_NODE, then falls back to
+    os.cpu_count() (for interactive/laptop use outside SLURM).
     """
-    for var in ("SLURM_CPUS_PER_TASK", "SLURM_JOB_CPUS_PER_NODE", "SLURM_CPUS_ON_NODE",
-                "NCPUS", "PBS_NP"):
+    for var in ("SLURM_CPUS_PER_TASK", "SLURM_JOB_CPUS_PER_NODE", "SLURM_CPUS_ON_NODE"):
         val = os.environ.get(var)
         if val:
             # SLURM_JOB_CPUS_PER_NODE can look like "4(x2)" on multi-node jobs
@@ -78,17 +65,6 @@ def get_n_workers(default=None):
                 return max(1, int(val_clean))
             except ValueError:
                 continue
-
-    nodefile = os.environ.get("PBS_NODEFILE")
-    if nodefile and os.path.exists(nodefile):
-        try:
-            with open(nodefile) as f:
-                n = sum(1 for line in f if line.strip())
-            if n > 0:
-                return n
-        except OSError:
-            pass
-
     if default is not None:
         return default
     return max(1, os.cpu_count() or 1)
