@@ -125,7 +125,67 @@ def mag_to_counts(mag_ab, zeropoint_ab):
     return 10 ** (-0.4 * (mag_ab - zeropoint_ab))
 
 
-def get_psf_kernel(psf_fwhm_pix=None, psf_file=None):
+ 
+def crop_psf(psf, size=31, target_flux_fraction=0.999):
+    """
+    Crop a (possibly large) empirical PSF down to a small postage
+    stamp centered on its peak pixel, and renormalize so the crop
+    still sums to 1.
+ 
+    Why this matters: astropy's convolve_fft pads BOTH input arrays
+    to avoid circular wraparound, roughly to
+    (stamp_size + psf_size - 1) on each axis. A 333x333 PSF forces
+    that padded FFT to ~360x360 on every single injected source no
+    matter how small the Sersic stamp is -- this is almost certainly
+    the actual source of the slowdown, not `stamp_size` itself.
+    Bumping stamp_size up to 333 to "match" the PSF keeps paying that
+    same enormous FFT cost; cropping the PSF instead fixes it at the
+    source.
+ 
+    A NIRCam PSF's FWHM is typically only a few pixels, so a 333px
+    footprint is almost certainly there to capture faint diffraction
+    wings (useful for aperture-correction work), not something a
+    Sersic-profile fake-source injection needs.
+ 
+    Args:
+        psf (2D array): the raw PSF, any size.
+        size (int or None): if given, crop to exactly this size
+            (rounded up to odd) centered on the PSF's peak pixel.
+            If None, grow the crop outward from the peak until it
+            captures `target_flux_fraction` of the PSF's total flux,
+            then use that (odd) size instead.
+        target_flux_fraction (float): only used when size is None.
+ 
+    Returns:
+        cropped (2D array): PSF crop, renormalized to sum to 1.
+    """
+    psf = np.asarray(psf, dtype=float)
+    total_flux = psf.sum()
+    peak_y, peak_x = np.unravel_index(np.argmax(psf), psf.shape)
+ 
+    if size is None:
+        max_half = min(peak_y, psf.shape[0] - 1 - peak_y,
+                        peak_x, psf.shape[1] - 1 - peak_x)
+        half = 1
+        while half < max_half:
+            box = psf[peak_y - half:peak_y + half + 1,
+                      peak_x - half:peak_x + half + 1]
+            if box.sum() / total_flux >= target_flux_fraction:
+                break
+            half += 1
+    else:
+        if size % 2 == 0:
+            size += 1  # keep it odd, centered exactly on the peak pixel
+        half = size // 2
+ 
+    y_lo, y_hi = max(0, peak_y - half), min(psf.shape[0], peak_y + half + 1)
+    x_lo, x_hi = max(0, peak_x - half), min(psf.shape[1], peak_x + half + 1)
+ 
+    cropped = psf[y_lo:y_hi, x_lo:x_hi]
+    cropped = cropped / cropped.sum()  # restore unit flux after dropping the wings
+    return cropped
+
+def get_psf_kernel(psf_fwhm_pix=None, psf_file=None, crop_size=31, target_flux_fraction=0.999):
     """
     Return a normalized PSF kernel.
 
@@ -141,6 +201,7 @@ def get_psf_kernel(psf_fwhm_pix=None, psf_file=None):
     if psf_file is not None:
         psf = fits.getdata(psf_file).astype(float)
         psf /= psf.sum()
+        psf = crop_psf(psf, size=crop_size, target_flux_fraction=target_flux_fraction)
         return psf
     else:
         if psf_fwhm_pix is None:
@@ -220,6 +281,7 @@ def inject_fake_sources(science_data, weight_data, zeropoint_ab, psf_kernel,
 
         stamp = make_sersic_stamp(stamp_size, r_effs[i], n_sersics[i],
                                    ellips[i], thetas[i], flux_counts)
+
         stamp = convolve_fft(stamp, psf_kernel, normalize_kernel=True, boundary="fill", fill_value=0.0)
 
         # Clip stamp to the valid array region (handles edge sources)

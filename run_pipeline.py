@@ -114,28 +114,9 @@ def load_field(science_path, weight_path, verbose=False):
     return science_data, weight_data, wcs, zeropoint_ab
 
 # One injection-and-recovery round
-def _one_injection_round(science_data, weight_data, zeropoint_ab, psf_kernel, 
-                        n_inject, z_drop, M_UV_range, M_UV_cut, rng):
-
-    injected_data, truth = inject_fake_sources(science_data, weight_data, zeropoint_ab,
-                                               psf_kernel, n_inject, z_drop, M_UV_range, rng)
-
-    cat, _ = detect_in_image(injected_data, weight_data, psf_kernel)
-    recovered, _ = match_recovered(cat, truth, match_radius_pix=2.0)
-    keep = apply_selection_cut(truth, recovered, M_UV_cut=M_UV_cut)
-
-    return truth["x"][keep], truth["y"][keep]
-
-
-# Build the full random catalog to the target size
 def build_random_catalog(science_data, weight_data, wcs, zeropoint_ab, 
                          psf_fwhm_pix, n_target, z_drop, M_UV_range, 
                          M_UV_cut, rng, psf_fits_path=None, n_inject_per_round=2000, max_rounds=200):
-    """
-    Repeatedly injects and recovers fake sources until n_target random
-    points have survived detection + selection, then returns their sky
-    coordinates (RA, Dec).
-    """
     xs_kept, ys_kept = [], []
     n_have = 0
 
@@ -147,10 +128,20 @@ def build_random_catalog(science_data, weight_data, wcs, zeropoint_ab,
     psf_file = psf_fits_path if (psf_fits_path and os.path.exists(psf_fits_path)) else None
     psf_kernel = get_psf_kernel(psf_fwhm_pix=psf_fwhm_pix, psf_file=psf_file)
 
+    # Detect on the CLEAN image once -- this is segm_original / cat_orig_mag,
+    # reused across every injection round rather than recomputed each time.
+    cat_original, segm_original, _ = detect_in_image(science_data, weight_data)
+    cat_orig_mag = {
+        lab: zeropoint_ab - 2.5 * np.log10(flux)
+        for lab, flux in zip(cat_original.labels, cat_original.segment_flux)
+        if flux > 0
+    }
+
     for round_i in range(max_rounds):
         x_round, y_round = _one_injection_round(science_data, weight_data, zeropoint_ab,
                                                psf_kernel, n_inject_per_round, z_drop,
-                                               M_UV_range, M_UV_cut, rng)
+                                               M_UV_range, M_UV_cut, rng,
+                                               segm_original, cat_orig_mag)
         xs_kept.append(x_round)
         ys_kept.append(y_round)
 
@@ -174,6 +165,24 @@ def build_random_catalog(science_data, weight_data, wcs, zeropoint_ab,
 
     ra, dec = wcs.all_pix2world(x_all, y_all, 0)
     return ra, dec
+
+
+def _one_injection_round(science_data, weight_data, zeropoint_ab, psf_kernel, 
+                        n_inject, z_drop, M_UV_range, M_UV_cut, rng,
+                        segm_original, cat_orig_mag):
+
+    injected_data, truth = inject_fake_sources(science_data, weight_data, zeropoint_ab,
+                                               psf_kernel, n_inject, z_drop, M_UV_range, rng)
+
+    cat, segm, coverage_mask = detect_in_image(injected_data, weight_data)
+    recovered, status, meas_mag, meas_flux = match_recovered(
+        cat, segm, coverage_mask, truth, segm_original, cat_orig_mag,
+        zp=zeropoint_ab, match_radius_pix=2.0,
+    )
+    keep = apply_selection_cut(truth, recovered, M_UV_cut=M_UV_cut)
+
+    return truth["x"][keep], truth["y"][keep]
+
 
 
 def get_random_catalog(cache_path, force_regenerate, science_data, weight_data, wcs,
@@ -288,12 +297,12 @@ if __name__ == "__main__":
     WEIGHT_FITS = os.path.join(INPUT_DIR, "hlsp_ceers_jwst_nircam_fullceers_f277w_v1_wht.fits.gz")
     PSF_FITS = os.path.join(INPUT_DIR, "psf_F277W.fits")
     PSF_FWHM_PIX = 3.0          # Approximate JWST/NIRCam F277W Gaussian PSF FWHM (pixels)
-    Z_DROP = 5.5
+    Z_DROP = 9.50               # 0.25, 0.75, 1.25, 1.75, 2.25, 2.75, 3.25, 3.75, 4.50, 5.50, 6.50, 7.50, 8.50, 9.50, 11.50, 16.50 
     M_UV_RANGE = (-24.0, -15.0)
     M_UV_CUT = -15.0
     
     # import data file 
-    DATA_CSV = os.path.join(INPUT_DIR, f"CEERS_z{Z_DROP}_selected.csv")
+    DATA_CSV = os.path.join(INPUT_DIR, "bins", f"CEERS_z{Z_DROP:.2f}_selected.csv")
     data_file = pd.read_csv(DATA_CSV)        # Data file
     N_RANDOM_TARGET = 20 * len(data_file)  # N_r = 20 * N_d, per Sec. 4
 
@@ -391,17 +400,15 @@ if __name__ == "__main__":
     ax.grid(True, which="both", alpha=0.3)
     ax.legend()
     # Display fitted amplitude
-    ax.text(
-        0.05,
-        0.95,
-        rf"$A_w = {results['A_w']:.4f}$" "\n"
-        rf"$\sigma(A_w) = {results['A_w_err']:.4f}$" "\n"
-        rf"$\beta = {beta}$",
-        transform=ax.transAxes,
-        fontsize=11,
-        verticalalignment="top",
-        bbox=dict(facecolor="white", edgecolor="black")
-    )
+    text = (rf"$A_w = {results['A_w']:.4f}$""\n"
+            rf"$\sigma(A_w) = {results['A_w_err']:.4f}$""\n"
+            rf"$\beta = {beta}$""\n"
+            rf"$z = {Z_DROP}$")
+
+    ax.text(0.05, 0.95, text,
+            transform=ax.transAxes,
+            fontsize=11, va="top",
+            bbox=dict(facecolor="white", edgecolor="black"),)
    
     plt.savefig(os.path.join(OUTPUT_DIR, "plots", f"results_z{Z_DROP}.png"), dpi=300, bbox_inches="tight")
     if SHOW_PROGRESS:
