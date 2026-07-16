@@ -293,9 +293,9 @@ if __name__ == "__main__":
     rng = np.random.default_rng(42)
 
     # --- user-editable paths / parameters ---
-    SCIENCE_FITS = os.path.join(INPUT_DIR, "hlsp_ceers_jwst_nircam_fullceers_f277w_v1_sci.fits.gz")
-    WEIGHT_FITS = os.path.join(INPUT_DIR, "hlsp_ceers_jwst_nircam_fullceers_f277w_v1_wht.fits.gz")
-    PSF_FITS = os.path.join(INPUT_DIR, "psf_F277W.fits")
+    SCIENCE_FITS = os.path.join(INPUT_DIR, "survey", "hlsp_ceers_jwst_nircam_fullceers_f277w_v1_sci.fits.gz")
+    WEIGHT_FITS = os.path.join(INPUT_DIR, "survey", "hlsp_ceers_jwst_nircam_fullceers_f277w_v1_wht.fits.gz")
+    PSF_FITS = os.path.join(INPUT_DIR, "psf", "psf_F277W.fits")
     PSF_FWHM_PIX = 3.0          # Approximate JWST/NIRCam F277W Gaussian PSF FWHM (pixels)
     Z_DROP = 9.50               # 0.25, 0.75, 1.25, 1.75, 2.25, 2.75, 3.25, 3.75, 4.50, 5.50, 6.50, 7.50, 8.50, 9.50, 11.50, 16.50 
     M_UV_RANGE = (-24.0, -15.0)
@@ -336,6 +336,7 @@ if __name__ == "__main__":
                                                weight_data=None,wcs=None, zeropoint_ab=None, psf_fwhm_pix=None, 
                                                n_target=None, z_drop=None, M_UV_range=None, M_UV_cut=None, 
                                                rng=rng, psf_fits_path=None)
+
     else:
         science_data, weight_data, wcs, zeropoint_ab = load_field(SCIENCE_FITS, WEIGHT_FITS)
         ra_rand, dec_rand = get_random_catalog(RANDOM_CATALOG_CACHE, FORCE_REGENERATE_RANDOM, science_data, 
