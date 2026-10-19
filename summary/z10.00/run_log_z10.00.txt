@@ -1,0 +1,7 @@
+cut 'chi2_min <= 10': 66 -> 53
+cut 'USE == 1': 53 -> 51
+z_drop = 10.0: N per M bin {(-23.5, -17.5): 49}, outside all bins 2
+LF: lf_table.csv, nearest row z = 10.0 (interpolated): M* = -21.184, log phi* = -5.269, alpha = -2.372
+data on finite depth pixels: 51 / 51
+C(M_UV, z_drop) at M = -21, -19, -18, -17.5: [0.98 0.84 0.2  0.03]
+building random catalogues, targets per M bin: [980]

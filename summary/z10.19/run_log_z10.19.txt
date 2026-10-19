@@ -1,0 +1,4 @@
+cut 'USE == 1': 66 -> 62
+z_drop = 10.19: N per M bin {(-23.5, -17.5): 58}, outside all bins 4
+LF: lf_table.csv, nearest row z = 10.2 (real): M* = -21.19, log phi* = -5.377, alpha = -2.38
+data on finite depth pixels: 62 / 62

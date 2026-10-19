@@ -1,0 +1,101 @@
+# =========================================================
+# Large / regenerable data
+# =========================================================
+*.fits
+*.fits.gz
+*.hdf5
+*.h5
+*.pkl
+*.pickle
+*.npy
+
+# Ignore NPZ by default; preserve completeness grids
+*.npz
+!inputs/completeness/*.npz
+!**/C_Mz_*.npz
+
+# =========================================================
+# Input directories
+# (use "dir/*" not "dir/" so files inside can be re-included)
+# =========================================================
+inputs/*
+input/*
+!inputs/parameters.yaml
+!inputs/response/
+!inputs/completeness/
+
+# =========================================================
+# Generated outputs
+# =========================================================
+outputs/
+output/
+results/
+runs/
+acf_results/
+cache/
+injection_statistics/
+ipnybs/
+
+# Derived catalogues
+joined_catalog.csv
+cat_r_eff.csv
+CEERS_z*_selected.csv
+random_catalog*.csv
+
+# =========================================================
+# HPC / PBS Pro (Pegasus)
+# =========================================================
+*.o[0-9]*
+*.e[0-9]*
+*.pbs.log
+core.[0-9]*
+nohup.out
+
+# =========================================================
+# Python environments and caches
+# =========================================================
+venv/
+.venv/
+env/
+astro_env/
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Secrets
+.env
+*.pem
+*.key
+
+# Editors / OS
+.DS_Store
+._*
+.vscode/
+.idea/
+*.swp
+
+# Logs and temporary files
+*.log
+*.tmp
+*.bak
+*~
+injection_statistics/
+ipnybs/
+
+# Small inputs the pipeline needs (keep at the END so they override earlier rules)
+!inputs/response_function/
+!inputs/psf/
+!inputs/psf/*.fits
+!inputs/lf_table.csv
+!inputs/bins/
+inputs/bins/*
+!inputs/bins/CEERS_z*_selected.csv

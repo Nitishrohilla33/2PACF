@@ -1,0 +1,9 @@
+cut 'chi2_min <= 10': 89 -> 70
+cut 'USE == 1': 70 -> 68
+z_drop = 12.0: N per M bin {(-23.5, -17.5): 68}, outside all bins 0
+LF: lf_table.csv, nearest row z = 12.0 (extrapolated): M* = -21.27, log phi* = -6.242, alpha = -2.6
+data on finite depth pixels: 68 / 68
+C(M_UV, z_drop) at M = -21, -19, -18, -17.5: [0.99 0.84 0.14 0.1 ]
+building random catalogues, targets per M bin: [1360]
+M -23.5 to -17.5: N = 68  A_w = 0.4148 +/- 2.056  r0 = 1.131 +/- 3.503 h^-1 Mpc  bias = 3.235 +/- 8.017  (z_eff = 11.89)
+    log10 M_h = 6.71 [nan, 9.86] h^-1 M_sun (tinker10)

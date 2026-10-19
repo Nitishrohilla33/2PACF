@@ -1,0 +1,29 @@
+z_drop: 9.0
+z_eff: 8.895040712891399
+M_UV_bin:
+- -23.5
+- -17.5
+n_data: 307
+n_random: 6140
+theta_bins_arcsec:
+- 10.0
+- 200.0
+- 20
+photoz_sigma: 0.0
+contamination_fraction: 0.0
+A_w_raw: 0.9493004479449006
+A_w_raw_err: 0.5476967210377874
+A_w: 0.9493004479449006
+A_w_err: 0.5476967210377874
+ic_over_Aw: 0.03421301142175544
+r0_h_inv_mpc: 2.378117849605132
+r0_err_h_inv_mpc: 0.8575310319890447
+sigma8_g: 0.4802429335870451
+sigma8_g_err: 0.13853753076626546
+bias: 4.49993108170816
+bias_err: 1.298112469915654
+halo_bias_model: tinker10
+log10_Mh_h_inv_Msun: 9.076153325893673
+log10_Mh_lo: 8.191349741455307
+log10_Mh_hi: 9.645038468773304
+log10_Mh_Msun: 9.244923632026609

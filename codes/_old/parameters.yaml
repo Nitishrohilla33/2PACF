@@ -1,0 +1,76 @@
+
+paths:
+  wcs_file: inputs/survey/hlsp_ceers_jwst_nircam_fullceers_f277w_v1_sci.fits.gz
+  real_catalog: "inputs/bins/CEERS_z{z_drop:.2f}_selected.csv"
+  depth_map: "inputs/survey/ceers_f277w_depth_mag.fits"
+  valid_mask: null
+  segm_map: "inputs/survey/bundle_sextractor/detection/segmentation_total_binary.fits"
+  radius_catalog: "inputs/survey/cat_r_eff.csv"
+  completeness: "inputs/completeness/C_Mz_converted.npz"
+  output_dir: "outputs/z{z_drop:.2f}/"
+  random_catalog_dir: "random_catalogs/"
+  # response_function:
+  #   F277W: "inputs/response_function/response_F277W.txt"
+
+survey:
+  z_drop: 8.00
+  ra_col: RA
+  dec_col: DEC
+  muv_col: MAG_f277w
+  n_z_model: integral
+  n_z_min_galaxies: 10
+  # z_col: z_a
+  # n_z_kde_bw: null
+  # n_z_mu: null
+  # n_z_sigma: 0.5
+
+injection:
+  random_seed: 42
+  random_to_data_ratio: 20
+  M_UV_range:
+    - 31.95
+    - 25.06
+  M_UV_bins:
+    - [24.0, 22.0]
+    - [22.0, 20.0]
+    - [20.0, 18.0]
+    - [18.0, 16.0]
+  stamp_padding: 9.0
+  blending_check: footprint
+  chunk: 500000
+  max_chunks: 2000
+  force_regenerate_random_catalog: true
+
+selection:
+  m_ref: 28.0
+  z_min: 7.5
+  z_max: 8.5
+  n_z_grid: 60
+  n_M_grid: 60
+  lf:
+    M_star: -20.82
+    log_phi_star: -3.92
+    alpha: -2.16
+    z_ref: 8.0
+    dMstar_dz: 0.0
+    dlogphi_dz: 0.0
+    dalpha_dz: 0.0
+
+acf:
+  theta_min_arcsec: 1
+  theta_max_arcsec: 250.0
+  n_theta_bins: 12
+  beta: 0.6
+  n_bootstrap: 500
+  min_RR_counts: 20
+  force_recompute_pair_counts: true
+  force_recompute_summary: true
+
+cosmology:
+  H0: 67.8
+  Om0: 0.308
+  h: 0.678
+  sigma8_0: 0.828
+
+hpc:
+  n_workers: 4

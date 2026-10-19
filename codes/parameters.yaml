@@ -1,0 +1,69 @@
+# run:  python run_pipeline.py parameters.yaml      (paths are relative to the project folder)
+# change survey.z_drop to run another bin; every {z_drop} below follows it.
+
+paths:
+  wcs_file: inputs/survey/hlsp_ceers_jwst_nircam_fullceers_f277w_v1_sci.fits.gz
+  real_catalog: "inputs/bins/CEERS_z{z_drop:.2f}_selected.csv"       # chi2_min <= 10, 1 pix match, M_UV column
+  depth_map: "inputs/survey/ceers_f277w_depth_mag.fits"               # header must carry MREF = selection.m_ref
+  segm_map: "inputs/survey/bundle_sextractor/detection/segmentation_total_binary.fits"
+  valid_mask: null      # optional bool image for the randoms; do not combine one already masked by segmentation with blending_check: footprint
+  completeness: "inputs/completeness/C_Mz_z{z_drop:.2f}.npz"          # injection-recovery table, keys M (apparent AB mag) and C
+  lf_table: inputs/lf_table.csv       # Schechter UV LF vs z (real / interpolated / extrapolated), made by make_lf_table.py
+  output_dir: "outputs/z{z_drop:.2f}/"             # acf_results_*.csv (w(theta) per M bin)
+  summary_dir: "summary/z{z_drop:.2f}/"            # summary_*.yaml (A_w, r0, bias) and the run log
+  random_catalog_dir: "random_catalogs/"
+
+survey:
+  z_drop: 12.00
+  ra_col: RA
+  dec_col: DEC
+  muv_col: M_UV          # ABSOLUTE magnitude (F150W for z = 8, 9; F200W for z >= 10)
+  data_cuts:             # pandas query strings applied to the catalogue before binning
+    - "chi2_min <= 10"   # photo-z fit quality (the bin files rewritten on 17 Oct no longer apply it)
+    - "USE == 1"         # drops BAD_REGION_FLAG = 1 and STAR_FLAG = 1 (IN_FOOTPRINT is NOT part of it)
+    # - "SN_f277w >= 5"  # if used, also set selection.sn_min: 5 so the randoms get the same cut
+    # - "dchi2 >= 4"     # reject weak high-z solutions (774 -> ~100 at z = 8)
+  min_galaxies: 10       # skip M bins with fewer sources
+
+injection:
+  random_seed: 42
+  random_to_data_ratio: 20
+  M_UV_bins:             # absolute M_UV, bright -> faint, contiguous [lo, hi); also sets the M range of the randoms
+    - [-23.5, -17.5]     # C(M) drops to 0 near -17.7 at z = 8, fainter data cannot be matched by randoms
+  blending_check: footprint   # footprint: randoms whose padded stamp touches segmentation are rejected; none: off
+  stamp_padding: 9.0
+  max_r_eff_px: 30       # drop size outliers from the FLUX_RADIUS distribution
+  chunk: 500000
+  max_chunks: 2000
+  force_regenerate_random_catalog: True
+
+selection:
+  m_ref: 28.0            # depth-map value at which C was measured
+  z_min: null            # null -> z_drop - 0.5
+  z_max: null            # null -> z_drop + 0.5
+  n_z_grid: 60
+  n_M_grid: 60
+  monotone_completeness: true
+  sn_min: null           # S/N cut applied in data_cuts, copied into C(M) for randoms and N(z); null = off
+  sn_band: f277w         # band of that cut (the depth map is F277W)
+
+acf:
+  theta_min_arcsec: 10.0  # log-spaced bins (linear bins biased the first bin by 1.8x)
+  theta_max_arcsec: 200.0
+  n_theta_bins: 20
+  beta: 0.6
+  n_bootstrap: 500
+  min_RR_counts: 20
+  photoz_sigma: 0.0            # Gaussian photo-z error sigma*(1+z), widens N(z) for Limber; 0 = top-hat z_min..z_max
+  contamination_fraction: 0.0  # interloper fraction f: A_w -> A_w / (1-f)^2
+
+cosmology:
+  H0: 67.8
+  Om0: 0.308
+  h: 0.678
+  sigma8_0: 0.828
+  Ob0: 0.0484            # baryon density, for the Eisenstein & Hu P(k) in halo_mass.py (Planck 2015)
+  ns: 0.9677             # spectral index (Planck 2015)
+
+halo:
+  bias_model: tinker10   # b_h(M) for the halo mass: tinker10 (Tinker+10, M_200m) or smt01 (Sheth, Mo & Tormen 01)

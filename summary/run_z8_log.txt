@@ -1,0 +1,6 @@
+cut 'USE == 1': 846 -> 841
+z_drop = 8.0: N per M bin {(-23.5, -17.5): 774}, outside all bins 67
+C(M_UV, z_drop) at M = -21, -19, -18, -17.5: [0.97 0.76 0.2  0.01]
+data on finite depth pixels: 841 / 841
+building random catalogues, targets per M bin: [15480]
+M -23.5 to -17.5: N = 774  A_w = 0.4148 +/- 0.2027  r0 = 1.646 +/- 0.5026 h^-1 Mpc  bias = 3.04 +/- 0.7427  (z_eff = 7.97)

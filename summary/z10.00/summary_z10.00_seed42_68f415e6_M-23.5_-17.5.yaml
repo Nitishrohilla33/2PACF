@@ -1,0 +1,24 @@
+z_drop: 10.0
+z_eff: 9.89770178800998
+M_UV_bin:
+- -23.5
+- -17.5
+n_data: 49
+n_random: 2450
+theta_bins_arcsec:
+- 10.0
+- 200.0
+- 10
+photoz_sigma: 0.0
+contamination_fraction: 0.0
+A_w_raw: -3.335033301706772
+A_w_raw_err: 2.216656437345577
+A_w: -3.335033301706772
+A_w_err: 2.216656437345577
+ic_over_Aw: 0.03447016701503398
+r0_h_inv_mpc: .nan
+r0_err_h_inv_mpc: .nan
+sigma8_g: .nan
+sigma8_g_err: .nan
+bias: .nan
+bias_err: .nan
