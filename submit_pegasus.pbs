@@ -1,0 +1,45 @@
+#!/bin/bash
+#
+# submit_pegasus.pbs
+#
+# PBS Professional batch script for IUCAA Pegasus (confirmed via
+# `qstat --version` / `which qsub` -> /opt/pbs/bin/qsub -- this
+# cluster does NOT run SLURM, so `sbatch`/submit_pegasus.slurm do not
+# apply here; use `qsub submit_pegasus.pbs` instead).
+#
+# -l select=1:ncpus=16:mem=32gb requests one chunk with 16 CPUs and
+# 32GB RAM. PBS Pro automatically sets $NCPUS=16 for the job from
+# this request, which hpc_utils.get_n_workers() now reads directly --
+# so the bootstrap ProcessPoolExecutor will use exactly the 16 cores
+# requested here, not the full physical core count of the node.
+#PBS -N 2pacf_ceers
+#PBS -l select=1:ncpus=16:mem=32gb
+#PBS -l walltime=08:00:00
+#PBS -j oe
+
+set -euo pipefail
+
+PROJECT_DIR="/mnt/home/project/crohilla.nitish/projects/2PACF"
+VENV_ACTIVATE="/mnt/home/project/crohilla.nitish/projects/astro_env/bin/activate"
+
+cd "$PROJECT_DIR"
+source "$VENV_ACTIVATE"
+
+echo "========================================"
+echo "Job started on $(hostname) at $(date)"
+echo "Working directory: $(pwd)"
+echo "Python: $(which python)"
+python --version
+echo "NCPUS = ${NCPUS:-unset}"
+echo "========================================"
+
+python run_pipeline.py
+
+EXIT_CODE=$?
+
+echo "========================================"
+echo "Finished at $(date)"
+echo "Exit code = ${EXIT_CODE}"
+echo "========================================"
+
+exit ${EXIT_CODE}
