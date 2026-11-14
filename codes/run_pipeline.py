@@ -1,7 +1,8 @@
 """
-run_pipeline.py -- depth-aware randoms -> w(theta) -> A_w -> r0 and bias, one z-bin per run.
+run_pipeline.py -- sky-completeness-aware randoms -> w(theta) -> A_w -> r0 and bias, per z-bin.
 
-    python run_pipeline.py parameters.yaml
+    python run_pipeline.py parameters.yaml              (every z-bin in survey.z_bins)
+    python run_pipeline.py parameters.yaml z7p5_9p5     (only the named z-bin(s))
 
 For every M_UV bin in injection.M_UV_bins:
   data (cuts + M bin) -> randoms (depth, C and size aware) -> DD/DR/RR -> w(theta) -> A_w
@@ -16,9 +17,11 @@ import numpy as np
 import pandas as pd
 import yaml
 from astropy.io import fits
+from astropy.table import Table
 from astropy.wcs import WCS
 from astropy.cosmology import FlatLambdaCDM
 from scipy.stats import norm
+from scipy.interpolate import RegularGridInterpolator
 
 from depth_aware_randoms import make_randoms_cells
 from nz_integral import nz_from_integral, trap
@@ -61,34 +64,69 @@ def isotonic_decreasing(c):
     return np.repeat(vals, sizes)
 
 
-def load_completeness(path, cosmo, monotone=True, m_max=np.inf):
-    """Injection-recovery table with keys M (APPARENT AB mag) and C, measured for this z-bin.
-    Returns C(M_UV, z): the table evaluated at the apparent magnitude m = M_UV + offset(z).
-    Brighter than the table: C of its brightest point; fainter: 0.
-    monotone=True replaces C by its isotonic (non-increasing) fit, which averages out the
-    binomial noise of the few injections per magnitude.
-    m_max: C = 0 fainter than this apparent magnitude (at the reference depth m_ref), used to
-    copy an S/N cut on the data into the randoms and N(z)."""
-    d = np.load(path)
-    m, c = d["M"].astype(float), d["C"].astype(float)
-    order = np.argsort(m)
-    m, c = m[order], np.clip(c[order], 0.0, 1.0)
+def load_completeness(path, cosmo, monotone=True, m_max=np.inf, layer=4, dz=0.1, dM=0.25):
+    """Footprint-averaged C(M_UV, z_true) from the sky map's injected mocks (one row per mock:
+    Z_TRUE, MUV_TRUE, MAG_IN = injected m_F277W, L<layer> = passed that layer).
+    C is the fraction passing `layer` in (dz x dM) cells, so for layer 4 it already contains the
+    probability that z_a lands in the bin's window. Brighter than the mocks: C of the brightest
+    cell; fainter or outside the mocks' z range: 0.
+    monotone=True replaces each z row by its isotonic (non-increasing in M) fit.
+    m_max: C = 0 fainter than this apparent F277W magnitude.
+    Also returns m_f277w(M, z) = M + offset(z) + K(z), with K(z) the median of
+    MAG_IN - MUV_TRUE - offset(Z_TRUE) of the mocks, i.e. the same M -> m relation as the map."""
+    t = Table.read(path)
+    z, M, m_in = (np.asarray(t[c], float) for c in ("Z_TRUE", "MUV_TRUE", "MAG_IN"))
+    passed = np.asarray(t[f"L{layer}"], bool)
+    z_e = np.linspace(z.min(), z.max(), max(int(round((z.max() - z.min()) / dz)), 1) + 1)
+    M_e = np.arange(np.floor(M.min() / dM) * dM, M.max() + dM, dM)
+    n_all = np.histogram2d(z, M, [z_e, M_e])[0]
+    n_sel = np.histogram2d(z[passed], M[passed], [z_e, M_e])[0]
+    c = np.clip(n_sel / np.maximum(n_all, 1), 0.0, 1.0)
     if monotone:
-        c = isotonic_decreasing(c)
+        c = np.array([isotonic_decreasing(row) for row in c])
+    z_c, M_c = 0.5 * (z_e[1:] + z_e[:-1]), 0.5 * (M_e[1:] + M_e[:-1])
+    interp = RegularGridInterpolator((z_c, M_c), c)
     z_tab = np.linspace(0.0, 20.0, 2001)                       # offset(z) is smooth: tabulate once
     off_tab = mag_offset(np.maximum(z_tab, 1e-3), cosmo)
+    k_bin = np.clip(np.digitize(z, z_e) - 1, 0, len(z_c) - 1)      # z = z_max belongs to the last bin
+    K_c = np.array([np.median((m_in - M - np.interp(z, z_tab, off_tab))[k_bin == j]) for j in range(len(z_c))])
+
+    def m_f277w(M, z):
+        return np.asarray(M, float) + np.interp(z, z_tab, off_tab) + np.interp(z, z_c, K_c)
 
     def C(M, z):
-        m_app = np.asarray(M) + np.interp(z, z_tab, off_tab)
-        return np.interp(m_app, m, c, left=c[0], right=0.0) * (m_app <= m_max)
-    return C
+        M = np.asarray(M, float)
+        z = np.broadcast_to(np.asarray(z, float), M.shape)       # scalar z (N(z)) or one z per M (randoms)
+        pts = np.column_stack([np.clip(z, z_c[0], z_c[-1]).ravel(), np.clip(M, M_c[0], M_c[-1]).ravel()])
+        inside = (z >= z_e[0]) & (z <= z_e[-1]) & (M <= M_e[-1]) & (m_f277w(M, z) <= m_max)
+        return interp(pts).reshape(M.shape) * inside
+    return C, m_f277w
 
 
-def sn_limit_offset(mag, sn, depth_at_source, sn_min):
-    """Median of (magnitude at which each source would have S/N = sn_min) - (local depth).
-    A random at local depth d then passes the S/N cut if m <= d + offset."""
-    ok = np.isfinite(mag) & np.isfinite(depth_at_source) & (sn > 0)
-    return float(np.median(mag[ok] + 2.5 * np.log10(sn[ok] / sn_min) - depth_at_source[ok]))
+def load_sky_prob(map_path, wcs, C, m_f277w, layer=4):
+    """P(keep) for a random at native pixel (x, y) with true (z, M):
+        C(M, z) * P_map(m, x, y) / <P_map(m)>_footprint,   m = m_f277w(M, z)
+    P_map = PMAX / (1 + exp((m - M50) / WIDTH)) is the map's local fit (0.99" pixels), and the
+    footprint average uses FOOTPRINT_FRAC * UNMASKED_FRAC as weights. So the mocks give the
+    footprint-averaged (M, z) dependence and the map gives where on the sky it is higher or lower."""
+    h = fits.open(map_path)
+    wmap = WCS(h[f"L{layer}_M50"].header)
+    m50, pmax, width = (np.asarray(h[f"L{layer}_{k}"].data, float) for k in ("M50", "PMAX", "WIDTH"))
+    wgt = np.asarray(h["FOOTPRINT_FRAC"].data, float) * np.asarray(h["UNMASKED_FRAC"].data, float)
+    use = (wgt > 0) & np.isfinite(m50) & np.isfinite(pmax) & np.isfinite(width)
+    m_tab = np.linspace(20.0, 35.0, 301)
+    P_mean = np.array([np.sum(wgt[use] * pmax[use] / (1 + np.exp(np.clip((m - m50[use]) / width[use], -50, 50))))
+                       for m in m_tab]) / wgt[use].sum()
+    ny, nx = m50.shape
+
+    def prob(x, y, z, M):
+        jx, jy = wmap.world_to_pixel_values(*wcs.pixel_to_world_values(x, y))
+        jx, jy = np.clip(np.rint(jx).astype(int), 0, nx - 1), np.clip(np.rint(jy).astype(int), 0, ny - 1)
+        m = m_f277w(M, z)
+        P = pmax[jy, jx] / (1 + np.exp(np.clip((m - m50[jy, jx]) / width[jy, jx], -50, 50)))
+        P = np.where(np.isfinite(P), P, 0.0)
+        return C(M, z) * P / np.maximum(np.interp(m, m_tab, P_mean), 1e-12)
+    return prob
 
 
 def photoz_window(z, z_min, z_max, sigma):
@@ -138,21 +176,28 @@ class Tee:
         self.log.flush()
 
 
-def load_config(config_path):
+def load_config(config_path, z_bin):
     with open(config_path) as f:
         cfg = yaml.safe_load(f)
-    z_drop = cfg["survey"]["z_drop"]
-    for key, value in cfg["paths"].items():                 # fill {z_drop}, make absolute
-        if isinstance(value, str):
-            cfg["paths"][key] = PROJECT_DIR / value.format(z_drop=z_drop)
+    zb = cfg["survey"]["z_bins"][z_bin]                     # this z-bin: z_a window, z_true range, M_UV bins
     sel = cfg["selection"]
-    sel["z_min"] = z_drop - 0.5 if sel.get("z_min") is None else sel["z_min"]
-    sel["z_max"] = z_drop + 0.5 if sel.get("z_max") is None else sel["z_max"]
+    sel["z_min"], sel["z_max"] = map(float, zb["z_true"])
+    z_drop = round(0.5 * (sel["z_min"] + sel["z_max"]), 2)  # label, seed offset and LF print: centre of z_true
+    cfg["survey"].update(z_bin=z_bin, z_drop=z_drop, z_a_range=[float(v) for v in zb["z_a"]])
+    cfg["injection"]["M_UV_bins"] = zb["M_UV_bins"]
+    for key, value in cfg["paths"].items():                 # fill {z_bin} / {z_drop}, make absolute
+        if isinstance(value, str):
+            cfg["paths"][key] = PROJECT_DIR / value.format(z_drop=z_drop, z_bin=z_bin)
     return cfg
 
 
 def select_data(df, survey, bins):
-    """Apply survey.data_cuts (pandas query strings), then split by M_UV bin [lo, hi)."""
+    """Keep z_col in the z_a window [lo, hi), apply survey.data_cuts (pandas query strings),
+    then split by M_UV bin [lo, hi)."""
+    z_lo, z_hi = survey["z_a_range"]
+    n0 = len(df)
+    df = df[(df[survey["z_col"]] >= z_lo) & (df[survey["z_col"]] < z_hi)]
+    print(f"{survey['z_col']} in [{z_lo}, {z_hi}): {n0} -> {len(df)}")
     for cut in survey.get("data_cuts") or []:
         n0 = len(df)
         df = df.query(cut)
@@ -162,8 +207,8 @@ def select_data(df, survey, bins):
     return df.reset_index(drop=True), in_bin
 
 
-def main(config_path):
-    cfg = load_config(config_path)
+def main(config_path, z_bin):
+    cfg = load_config(config_path, z_bin)
     paths, survey, inj, sel = cfg["paths"], cfg["survey"], cfg["injection"], cfg["selection"]
     acf_cfg, cosmo_cfg = cfg["acf"], cfg["cosmology"]
     z_drop = survey["z_drop"]
@@ -178,9 +223,9 @@ def main(config_path):
     M_edges = [bins[0][0]] + [b[1] for b in bins]
     if any(a[1] != b[0] for a, b in zip(bins[:-1], bins[1:])) or np.any(np.diff(M_edges) <= 0):
         raise ValueError("injection.M_UV_bins must be contiguous and go bright -> faint, e.g. [[-22, -19], [-19, -17.5]]")
-    df, in_bin = select_data(pd.read_csv(paths["real_catalog"]), survey, bins)
+    df, in_bin = select_data(Table.read(paths["real_catalog"]).to_pandas(), survey, bins)
     n_data = [int(s.sum()) for s in in_bin]
-    print(f"z_drop = {z_drop}: N per M bin {dict(zip(bins, n_data))}, outside all bins {len(df) - sum(n_data)}")
+    print(f"{survey['z_bin']} (z_drop = {z_drop}): N per M bin {dict(zip(bins, n_data))}, outside all bins {len(df) - sum(n_data)}")
 
     # ---- model ingredients ----
     cosmo = FlatLambdaCDM(H0=cosmo_cfg["H0"], Om0=cosmo_cfg["Om0"])
@@ -193,15 +238,17 @@ def main(config_path):
           f"log phi* = {near['log_phi_star']}, alpha = {near['alpha']}")
 
     # ---- maps ----
-    hdr = fits.getheader(paths["wcs_file"], "SCI")
+    # native-grid coverage (footprint minus star mask) plays the role of the old depth map: NaN = no
+    # randoms there; the selection itself comes from the sky map (sky_prob below)
+    hdr = fits.getheader(paths["footprint_mask"], "FOOTPRINT")
     wcs = WCS(hdr)
-    depth = fits.getdata(paths["depth_map"]).astype(np.float32)
-    if depth.shape != (hdr["NAXIS2"], hdr["NAXIS1"]):
-        raise ValueError(f"depth map {depth.shape} and WCS image differ: they must share one pixel grid")
-    m_ref = sel["m_ref"]
-    mref_hdr = fits.getheader(paths["depth_map"]).get("MREF")
-    if mref_hdr is None or abs(mref_hdr - m_ref) > 1e-6:
-        raise ValueError(f"selection.m_ref = {m_ref} but MREF in the depth map header is {mref_hdr}")
+    with fits.open(paths["footprint_mask"]) as h:
+        depth = np.where((h["FOOTPRINT"].data > 0) & (h["STARMASK"].data == 0), np.float32(0), np.float32(np.nan))
+    map_hdr = fits.getheader(paths["sky_map"])
+    for key, (lo, hi) in (("ZRANGE", (sel["z_min"], sel["z_max"])), ("L4WINDOW", survey["z_a_range"])):
+        got = [float(v) for v in str(map_hdr.get(key, "nan-nan")).split("-")]
+        if not np.allclose(got, [lo, hi]):
+            raise ValueError(f"{paths['sky_map'].name}: {key} = {map_hdr.get(key)} but parameters.yaml gives {lo}-{hi}")
 
     valid = fits.getdata(paths["valid_mask"]).astype(bool) if paths.get("valid_mask") else None
     segm, r_eff = None, None
@@ -219,20 +266,15 @@ def main(config_path):
     ix, iy = np.round(x).astype(int), np.round(y).astype(int)
     on = (ix >= 0) & (ix < depth.shape[1]) & (iy >= 0) & (iy < depth.shape[0])
     on[on] &= np.isfinite(depth[iy[on], ix[on]])
-    print(f"data on finite depth pixels: {on.sum()} / {len(df)}")
+    print(f"data in footprint and outside the star mask: {on.sum()} / {len(df)}")
+    in_bin = [s & on for s in in_bin]                      # randoms cannot fall where these are: drop them
+    n_data = [int(s.sum()) for s in in_bin]
 
-    # ---- completeness, with the data's S/N cut copied into it ----
-    m_max = np.inf
-    if sel.get("sn_min"):
-        band = sel["sn_band"]
-        d_src = np.full(len(df), np.nan)
-        d_src[on] = depth[iy[on], ix[on]]
-        lim_off = sn_limit_offset(df[f"MAG_{band}"].to_numpy(float), df[f"SN_{band}"].to_numpy(float),
-                                  d_src, sel["sn_min"])
-        m_max = m_ref + lim_off
-        print(f"S/N >= {sel['sn_min']} in {band}: m <= local depth + {lim_off:.2f}  (m_max = {m_max:.2f} at m_ref)")
-    C_comp = load_completeness(paths["completeness"], cosmo, sel.get("monotone_completeness", True), m_max)
+    # ---- completeness ----
+    C_comp, m_f277w = load_completeness(paths["completeness"], cosmo, sel.get("monotone_completeness", True),
+                                        layer=inj["layer"])
     print("C(M_UV, z_drop) at M = -21, -19, -18, -17.5:", np.round(C_comp([-21, -19, -18, -17.5], z_drop), 2))
+    sky_prob = load_sky_prob(paths["sky_map"], wcs, C_comp, m_f277w, layer=inj["layer"])
 
     # ---- random catalogues, cached on everything that shapes them ----
     stamp = json.dumps([sel, {k: v for k, v in inj.items() if k != "force_regenerate_random_catalog"},
@@ -248,10 +290,11 @@ def main(config_path):
     else:
         targets = [int(round(n * inj["random_to_data_ratio"])) for n in n_data]
         print("building random catalogues, targets per M bin:", targets)
-        cells = make_randoms_cells(depth, z_grid, M_grid, C_comp, phi, m_ref, M_edges, targets,
+        cells = make_randoms_cells(depth, z_grid, M_grid, C_comp, phi, 0.0, M_edges, targets,   # 0.0: m_ref, unused with pos_prob
                                    seed=inj["random_seed"] + int(100 * z_drop), chunk=inj["chunk"],
                                    max_chunks=inj["max_chunks"], valid=valid, segm=segm,
-                                   r_eff_values=r_eff, padding=inj["stamp_padding"], cosmo=cosmo)
+                                   r_eff_values=r_eff, padding=inj["stamp_padding"], cosmo=cosmo,
+                                   pos_prob=sky_prob)
         randoms = []
         for c, p in zip(cells, csvs):
             ra, dec = wcs.all_pix2world(c["x"], c["y"], 0)
@@ -286,7 +329,9 @@ def main(config_path):
         cov = bootstrap_errors(ra_d, dec_d, ra_r, dec_r, theta_bins, n_boot=acf_cfg["n_bootstrap"],
                                rng=np.random.default_rng(inj["random_seed"]), RR=RR, ra0=ra0, dec0=dec0)
         A_w_raw, A_w_err_raw, ic_over_Aw, w_err = fit_power_law_mle(theta_centers, w_obs, cov, RR, ra_r, dec_r,
-                                                                    beta=beta, min_RR_counts=acf_cfg["min_RR_counts"])
+                                                                    beta=beta, min_RR_counts=acf_cfg["min_RR_counts"],
+                                                                    DD=DD, min_DD_counts=acf_cfg.get("min_DD_counts", 0),
+                                                                    n_boot=acf_cfg["n_bootstrap"])
         f_cont = acf_cfg.get("contamination_fraction", 0.0)       # unclustered interlopers dilute w by (1-f)^2
         A_w, A_w_err = A_w_raw / (1 - f_cont) ** 2, A_w_err_raw / (1 - f_cont) ** 2
         pd.DataFrame({"theta_arcsec": theta_centers, "theta_lo": theta_bins[:-1], "theta_hi": theta_bins[1:],
@@ -311,7 +356,8 @@ def main(config_path):
         logMh, logMh_lo, logMh_hi = halo_mass_from_bias(bias, bias_err, sigma8_z / cosmo_cfg["sigma8_0"],
                                                         cosmo_pars, halo_cfg.get("bias_model", "tinker10"))
 
-        summary = {"z_drop": z_drop, "z_eff": z_eff, "M_UV_bin": [lo, hi], "n_data": n_data[k],
+        summary = {"z_bin": survey["z_bin"], "catalog": paths["real_catalog"].name, "z_a_range": survey["z_a_range"],
+                   "z_true_range": [sel["z_min"], sel["z_max"]], "z_drop": z_drop, "z_eff": z_eff, "M_UV_bin": [lo, hi], "n_data": n_data[k],
                    "n_random": len(rand), "theta_bins_arcsec": [float(theta_bins[0]), float(theta_bins[-1]),
                                                                  int(acf_cfg["n_theta_bins"])],
                    "photoz_sigma": float(sigma_pz), "contamination_fraction": float(f_cont),
@@ -331,7 +377,10 @@ def main(config_path):
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 2:
-        print("Usage: python run_pipeline.py parameters.yaml")
+    if len(sys.argv) < 2:
+        print("Usage: python run_pipeline.py parameters.yaml [z_bin ...]")
         sys.exit(1)
-    main(sys.argv[1])
+    with open(sys.argv[1]) as f:
+        all_bins = list(yaml.safe_load(f)["survey"]["z_bins"])
+    for name in sys.argv[2:] or all_bins:                   # default: every z-bin in survey.z_bins
+        main(sys.argv[1], name)

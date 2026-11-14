@@ -4,6 +4,29 @@ Scope: debugging and reviewing the depth-aware random-catalogue pipeline (`run_p
 
 Status labels used below: **[measured]** = computed from your outputs, **[code]** = visible in the code, **[inferred]** = my reasoning, not verified, **[open]** = needs your answer.
 
+> **Historical document (October 2026).** This file describes the code *as it was then*. It was
+> updated on 2026-11-11 with **"Now:"** notes wherever the current pipeline differs. For how the
+> code works today, see [`codes/PIPELINE_SUMMARY.md`](codes/PIPELINE_SUMMARY.md). For the first
+> clean-up, see [`summary/summary_1.md`](summary/summary_1.md).
+
+## Status of the findings (2026-11-11)
+
+| Item | Status |
+|---|---|
+| §4 #1 magnitude conventions in the YAML | **Fixed.** `muv_col: M_UV` (absolute), bins `[[-23.5, -17.5]]`, `M_UV_range` removed (the M range comes from the bin edges), order and contiguity checked |
+| §4 #2 linear θ bins | **Fixed.** `np.geomspace`, now 10–200″ in 20 bins |
+| §4 #3 flags / `valid` / shape checks | **Mostly fixed.** `data_cuts` applies `chi2_min <= 10` and `USE == 1` to the data; `valid_mask` is honoured in both blending modes; `segm` and `valid` shapes are checked. *Open:* the flags are not mirrored in the randoms (`valid_mask: null`, there is no bad-region image) |
+| §4 #4 cache key | **Fixed.** Hashes the settings, `n_data` and the modification time of every input file |
+| §4 #5 blending double counting | **Open** |
+| §4 #6 `m_ref` | `MREF` header check is now **required**. Which depth `m_ref` should be is still **open** |
+| §4 #7 z nodes of C | **Fixed differently.** One apparent-magnitude table per z-bin, `C_Mz_z{z}.npz`, evaluated at m = M_UV + DM(z) − 2.5 log(1+z), so there is no z interpolation between tables |
+| §4 #8 LF and bias redshift | **Fixed.** LF from `inputs/lf_table.csv` (Bouwens+21, interpolated in z); bias at z_eff = ⟨z⟩ over N(z) |
+| §4 minor: point bootstrap | **Open** (still a point bootstrap) |
+| §6 noisy C | **Fixed.** Isotonic (pool-adjacent-violators) fit, `monotone_completeness: true` |
+| §7 S/N cut | **Available.** Add the cut to `data_cuts` and set `selection.sn_min` so it is copied into C. **Not used** in the current runs |
+| §8 open questions 1–5 | **Still open** |
+| Added since | `photoz_sigma` (widens N(z)), `contamination_fraction` (A_w/(1−f)²), halo mass from the bias (`halo_mass.py`), run log per z, `result.ipynb` results table |
+
 ---
 
 ## 1. Inputs
@@ -15,6 +38,14 @@ Status labels used below: **[measured]** = computed from your outputs, **[code]*
 | `cat_r_eff.csv` | Merge of the two on pixel position, with `FLUX_RADIUS` and all other columns. |
 | Depth map | `ceers_f277w_depth_mag.fits`, built from the F277W weight map. 15400 x 45000 px, 0.03"/px, 54% finite, values 26.75 to 28.76, median 28.00. |
 | Completeness | `C_Mz_converted.npz` (keys `M, z, C`, z = 8..12, M = -24..-16) and the single-z file `C_Mz_z8_00.npz` (apparent mags 25.07 to 31.86 with C). |
+
+**Now:** the pipeline reads `inputs/bins/CEERS_z{z}_selected.csv` (the merged catalogue cut to
+the z-bin, with `M_UV`). Only z = 8, 9, 10, 11 and 12 have the full set of columns. It also reads
+`inputs/completeness/C_Mz_z{z}.npz` (keys `M` = apparent mag, `C`; z = 8–12, identical to
+`completeness_results.txt`). `C_Mz_converted.npz` and `C_Mz.npz` are no longer used.
+`cat_r_eff.csv` is not needed either, because the stamp sizes come from `FLUX_RADIUS` of the
+selected sample. The depth map, segmentation map and F277W image (for the WCS) live in
+`inputs/survey/` (not in git).
 
 ---
 
@@ -28,6 +59,10 @@ Status labels used below: **[measured]** = computed from your outputs, **[code]*
 | Run completed | | z = 8, N = 908: A_w = 0.328 +/- 0.122, r0 = 1.42 +/- 0.33, bias = 2.72 +/- 0.50 |
 
 The `4 bins` yaml fails with a `ValueError` unless the catalogue has an M_UV column (`survey.muv_col`).
+
+**Now:** the z-clip stopgap is gone (see §6 and the status table). The z = 8 result with the
+current settings is A_w = 0.26 ± 0.20, r0 = 1.17 ± 0.57 h⁻¹ Mpc, b = 2.30 ± 0.90 (N = 776,
+z_eff = 7.91; `summary/results_table.csv`).
 
 ---
 
@@ -58,6 +93,8 @@ The `4 bins` yaml fails with a `ValueError` unless the catalogue has an M_UV col
 ---
 
 ## 4. Code review: findings
+
+*These findings describe the October code. See the status table at the top for what has been fixed.*
 
 ### Certain
 
@@ -114,6 +151,11 @@ Limber inversion (Adelberger form, `f = (1+z) D_A`, `g = c/H`), arcsec-to-radian
 
 **The z = 8 file [measured].** 28 points, keys `M` (actually apparent AB magnitude, 25.07 to 31.86) and `C`; no `z` key. C = 1 to about m = 27.5, 0.5 near 28.5, 0.2 near 29.2, 0 beyond 29.5. At z = 8 that is M of about -18.7 at 50% and -17.7 at zero, so `M_UV_range` for z = 8 should end near -18. The curve is coarse and noisy (0.9 to 1.0 to 0.8 steps, and a stray 0.1 at m = 31.05 between zeros); a monotone version via `np.minimum.accumulate` is the better input. The loader needs at least two z nodes, so this single file cannot be used alone.
 
+**Now:** the loader takes exactly this kind of single-z, apparent-magnitude file. It converts
+M_UV → m with the z of each random, so the m − M offset follows z inside the bin. It uses an
+isotonic fit instead of `np.minimum.accumulate`, because a running minimum is biased low, and it
+sets C = 0 fainter than the table.
+
 **What `m_ref` means.** The completeness table says how likely a galaxy of brightness M is found *at the depth where the table was measured*. The sky is not uniformly deep, and the pipeline assumes being 0.5 mag deeper is equivalent to the galaxy being 0.5 mag brighter. `m_ref` is the depth where no shift is needed.
 
 - It is **not** 47.19 (that is the m - M offset, used once to convert the table).
@@ -155,6 +197,10 @@ F150W best matches the table's 50% point, which suggests it as the table's band 
 - Rough pair estimate within 20" if unclustered **[inferred]**: about 1330 (z = 8), 190 (z = 9), 27 (z = 11), 9 (z = 12), 5 (z = 10). z >= 10 will not constrain A_w or the bias.
 - The data sample has essentially nothing brighter than M = -21, so a bright bin such as `[-24, -22]` would be empty.
 
+**Now:** current runs use `chi2_min <= 10` and `USE == 1` with one M bin [−23.5, −17.5] and no S/N cut.
+N = 776 (z = 8), 307 (9), 49 (10), 115 (11) and 68 (12). All five A_w are below 2σ, and z = 10
+gives a negative A_w. This is as predicted above: z ≥ 10 does not constrain the bias.
+
 ---
 
 ## 8. Open questions
@@ -167,16 +213,16 @@ F150W best matches the table's 50% point, which suggests it as the table's band 
 
 ---
 
-## 9. Next steps
+## 9. Next steps (status 2026-11-11 in brackets)
 
-1. Regenerate bin files with `chi2_min <= 10`, the 1 pix match and `M_UV` (done for all five bins; add the flags `USE`, `STAR_FLAG`, `IN_FOOTPRINT`, `BAD_REGION_FLAG`).
-2. Run the blueward test and decide any further cut for z >= 9.
-3. Convert the completeness tables for z = 9..12 the same way as z = 8 and stack into one `(M, z)` npz (bright end `left=c[0]`, optional monotone C).
-4. Yaml for z = 8: `muv_col: M_UV`, `M_UV_range` about `[-21, -17.7]`, increasing negative bins chosen from the counts (at least about 50 sources per bin), contiguous.
-5. Switch angular bins to `np.geomspace`; choose `theta_min` and fit range.
-6. Add the cache-key inputs, the `segm.shape` assertion, a hard requirement on `MREF`, and the flag mask passed as `valid`.
-7. Run z = 8 on four samples with the same seed: all 846, SN150 >= 3 (742), m150 < 29.2 (661), SN150 >= 5 (407); compare A_w, r0, bias. Then repeat for `m_ref` = 27.5, 28.0, 28.5.
-8. Interpret results with care: the first run's A_w was likely biased low by the angular binning, and the CEERS field is small enough that the integral constraint and cosmic variance dominate.
+1. Regenerate bin files with `chi2_min <= 10`, the 1 pix match and `M_UV` (done for all five bins; add the flags `USE`, `STAR_FLAG`, `IN_FOOTPRINT`, `BAD_REGION_FLAG`). **[Done for z = 8–12. The flag columns are in the files, and `USE == 1` is applied through `data_cuts`.]**
+2. Run the blueward test and decide any further cut for z >= 9. **[Open]**
+3. Convert the completeness tables for z = 9..12 the same way as z = 8 and stack into one `(M, z)` npz (bright end `left=c[0]`, optional monotone C). **[Superseded. The per-z apparent-magnitude tables are read directly, so no conversion or stacking is needed.]**
+4. Yaml for z = 8: `muv_col: M_UV`, `M_UV_range` about `[-21, -17.7]`, increasing negative bins chosen from the counts (at least about 50 sources per bin), contiguous. **[Done. One bin [−23.5, −17.5]; `M_UV_range` removed.]**
+5. Switch angular bins to `np.geomspace`; choose `theta_min` and fit range. **[Done. 10–200″, 20 bins.]**
+6. Add the cache-key inputs, the `segm.shape` assertion, a hard requirement on `MREF`, and the flag mask passed as `valid`. **[Done, except the flag mask for the randoms (`valid_mask: null`).]**
+7. Run z = 8 on four samples with the same seed: all 846, SN150 >= 3 (742), m150 < 29.2 (661), SN150 >= 5 (407); compare A_w, r0, bias. Then repeat for `m_ref` = 27.5, 28.0, 28.5. **[Open. The S/N mechanism (`selection.sn_min`) exists but no comparison has been recorded. The `m_ref` test needs depth maps with matching `MREF`.]**
+8. Interpret results with care: the first run's A_w was likely biased low by the angular binning, and the CEERS field is small enough that the integral constraint and cosmic variance dominate. **[Still applies]**
 
 ---
 
@@ -207,7 +253,8 @@ theta_bins = np.geomspace(acf_cfg["theta_min_arcsec"], acf_cfg["theta_max_arcsec
                           acf_cfg["n_theta_bins"] + 1)
 ```
 
-Completeness conversion (per z node):
+Completeness conversion (per z node). *No longer used. `run_pipeline.load_completeness` now
+applies the offset to each random's own z:*
 
 ```python
 offset = cosmo.distmod(z).value - 2.5 * np.log10(1 + z)   # 47.19 at z = 8

@@ -9,20 +9,17 @@
 *.pickle
 *.npy
 
-# Ignore NPZ by default; preserve completeness grids
+# Ignore NPZ by default; preserve completeness grids (outside inputs/)
 *.npz
-!inputs/completeness/*.npz
 !**/C_Mz_*.npz
 
 # =========================================================
-# Input directories
-# (use "dir/*" not "dir/" so files inside can be re-included)
+# Input directories: no input data in git.
+# inputs/README.md describes which files go where.
 # =========================================================
 inputs/*
+!inputs/README.md
 input/*
-!inputs/parameters.yaml
-!inputs/response/
-!inputs/completeness/
 
 # =========================================================
 # Generated outputs
@@ -91,11 +88,3 @@ dist/
 injection_statistics/
 ipnybs/
 
-# Small inputs the pipeline needs (keep at the END so they override earlier rules)
-!inputs/response_function/
-!inputs/psf/
-!inputs/psf/*.fits
-!inputs/lf_table.csv
-!inputs/bins/
-inputs/bins/*
-!inputs/bins/CEERS_z*_selected.csv

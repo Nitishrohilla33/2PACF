@@ -77,7 +77,8 @@ def footprint_clear(x, y, r_eff, ellip, theta, segm, depth, padding=5.0):
 
 def make_randoms_cells(depth, z_grid, M_grid, C, phi, m_ref, M_edges, n_target,
                        seed=0, chunk=500000, max_chunks=2000,
-                       valid=None, segm=None, r_eff_values=None, padding=5.0, cosmo=Planck18):
+                       valid=None, segm=None, r_eff_values=None, padding=5.0, cosmo=Planck18,
+                       pos_prob=None):
     """depth   : float (ny, nx) relative depth map, NaN where there is no coverage
     M_edges : edges of the M_UV bins, bright -> faint, e.g. [-22, -19.5, -18]
     n_target: list, 20 * N_data for each M bin (data counted in this z-bin AND this M bin)
@@ -85,6 +86,8 @@ def make_randoms_cells(depth, z_grid, M_grid, C, phi, m_ref, M_edges, n_target,
     segm    : real segmentation map -> turns on the size-aware blending check (then do NOT
               also pass a `valid` that is already masked by segmentation); needs r_eff_values,
               the observed size distribution (pixels) for this z-bin
+    pos_prob: optional p(x, y, z, M) -> keep probability (sky-completeness map); replaces the
+              depth-shift rule C(M - (d - m_ref), z). depth is then only used as coverage (NaN = none)
     returns : list (one per M bin) of dicts with x, y, z, M (pixel coordinates, true z and M)"""
     rng = np.random.default_rng(seed)
     sample = make_zM_sampler(z_grid, M_grid, phi, cosmo)
@@ -104,7 +107,10 @@ def make_randoms_cells(depth, z_grid, M_grid, C, phi, m_ref, M_edges, n_target,
         x, y, d = x[ok], y[ok], d[ok]
 
         z, M = sample(rng, len(x))                                       # true z and M
-        p = np.clip(C(M - (d - m_ref), z), 0.0, 1.0)                     # depth-aware selection
+        if pos_prob is None:
+            p = np.clip(C(M - (d - m_ref), z), 0.0, 1.0)                 # depth-aware selection
+        else:
+            p = np.clip(pos_prob(x, y, z, M), 0.0, 1.0)                  # sky-completeness map selection
         keep = rng.random(len(x)) < p
         x, y, z, M = x[keep], y[keep], z[keep], M[keep]
 

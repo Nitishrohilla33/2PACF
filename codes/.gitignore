@@ -1,0 +1,42 @@
+# environment variables
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# Editor / OS
+.vscode
+.idea
+.DS_Store
+*.swp
+
+# Data & Outputs
+*.fits
+*.h5
+*.hdf5
+*.npy
+*.npz
+*.pkl
+output/
+results/
+plots/
+
+# HPC jobs logs
+*.out
+*.err
+
+# Old/scratch code
+_old/

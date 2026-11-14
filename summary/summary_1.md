@@ -5,6 +5,20 @@ Goal: fix the bugs it lists, make the pipeline as short and direct as possible, 
 
 **Backup:** the `codes/` folder is not tracked by git, so every original file was first copied to `codes/_old/` (unchanged). To undo, copy them back.
 
+> **Historical document (2026-10-14).** Updated on 2026-11-11 with **"Now:"** notes. The current
+> code is described in [`codes/PIPELINE_SUMMARY.md`](../codes/PIPELINE_SUMMARY.md).
+>
+> **Changes since this session:**
+> - `codes/` is now in git (first commit 2026-10-19).
+> - θ bins are 10–200″ in **20** log bins (here: 2–200″, 10 bins).
+> - `chi2_min <= 10` was added to `data_cuts`, because the bin files rewritten on 17 Oct no longer apply it.
+> - The LF comes from `inputs/lf_table.csv` (Bouwens+21, written by `make_lf_table.py`, interpolated in z). This closes the "LF evolution missing" item in §6.
+> - Summaries and the run log go to `summary/z{z}/` (`summary_dir`); w(θ) still goes to `outputs/z{z}/`.
+> - New settings: `acf.photoz_sigma`, `acf.contamination_fraction`, `selection.sn_min`/`sn_band`, `halo.bias_model`.
+> - A halo mass is now computed from the bias (`halo_mass.py`).
+> - z = 8–12 have all been run; `result.ipynb` collects them in `summary/results_table.csv`.
+> - `hpc_utils.py` and `redshift_mask.py` are no longer imported by anything.
+
 ---
 
 ## 1. How to run now
@@ -16,6 +30,9 @@ python run_pipeline.py parameters.yaml      # set survey.z_drop for another bin
 
 One z-bin per run, about 1.5 min for z = 8 on this laptop (randoms plus 500 bootstraps). Outputs:
 `outputs/z8.00/acf_results_<tag>.csv`, `outputs/z8.00/summary_<tag>.yaml`, and the randoms in `random_catalogs/`.
+
+**Now:** the summary YAML and the run log `run_log_z8.00.txt` are written to `summary/z8.00/`. The
+ACF CSV is still written to `outputs/z8.00/`.
 
 Pipeline flow (unchanged in idea, shorter in code):
 
@@ -62,6 +79,8 @@ Core code went from about 1460 lines (pipeline, estimator, yaml and the three he
 
 This confirms the review: with linear bins A_w came out about 1.5 times too low.
 
+**Now:** 10–200″ in 20 log bins (`acf.theta_min_arcsec: 10`, `n_theta_bins: 20`).
+
 ### 3.3 Completeness: simpler and without the z-clip stopgap (#7, §6)
 - The pipeline now reads `inputs/completeness/C_Mz_z{z_drop}.npz` directly. That is the injection-recovery table in **apparent** magnitude, measured for this z-bin.
 - For a random with true (M_UV, z): C = C_table(m), where m = M_UV + DM(z) − 2.5 log10(1+z).
@@ -74,6 +93,7 @@ This confirms the review: with linear bins A_w came out about 1.5 times too low.
 
 ### 3.4 Selection flags (#3)
 - `survey.data_cuts` is a list of pandas query strings. The default `"USE == 1"` removes 5 of 846 sources at z = 8 (all `IN_FOOTPRINT = 0` / `BAD_REGION_FLAG = 1`).
+  **Now:** the cuts are `["chi2_min <= 10", "USE == 1"]`.
 - The `valid_mask` is now honoured in both blending modes. Before, `valid = None` was hard-coded in the `footprint` branch.
 - The code asserts that `segm_map` and `valid_mask` have the depth-map shape.
 - Not yet mirrored in the randoms: there is no bad-region image. This only affects 5 sources.
@@ -105,6 +125,18 @@ The random-catalogue tag now hashes the selection, injection and survey settings
 
 The larger error is expected: the log bins no longer lean on the single wide first bin. The detection is about 2σ.
 
+**Now** (θ = 10–200″ × 20, `chi2_min <= 10` + `USE == 1`, LF table; `summary/results_table.csv`):
+
+| z_drop | N | A_w | r0 [h⁻¹ Mpc] | bias (z_eff) |
+|---|---|---|---|---|
+| 8 | 776 | 0.26 ± 0.20 | 1.17 ± 0.57 | 2.30 ± 0.90 (7.91) |
+| 9 | 307 | 0.95 ± 0.55 | 2.38 ± 0.86 | 4.50 ± 1.30 (8.90) |
+| 10 | 49 | −3.5 ± 0.9 | – | – |
+| 11 | 115 | 0.35 ± 1.19 | 1.1 ± 2.4 | 3.0 ± 5.1 (10.92) |
+| 12 | 68 | 0.41 ± 2.06 | 1.1 ± 3.5 | 3.2 ± 8.0 (11.89) |
+
+None of these bins is a detection at 2σ.
+
 ## 5. Checks run
 
 1. **Pair counts:** the new KD-tree counts equal the old loop exactly (DD and DR, mock data). The A_w fit agrees to 4 digits.
@@ -128,5 +160,13 @@ The larger error is expected: the log bins no longer lean on the single wide fir
 5. **Other z-bins.** Set `z_drop: 9.00`, `10.00`, … The C tables for 8–12 exist, and bin files exist with `M_UV`.
    - A sensible LF evolution (`d*_dz`) is still missing.
    - At z ≥ 10 the counts are too small for a useful A_w.
-6. **Errors.** The point bootstrap misses cosmic variance on scales larger than the field. A spatial jackknife would be more defensible.
+
+   **Now: done.** All five bins have been run, and the LF comes from `lf_table.csv`. As expected, z ≥ 10 gives no constraint.
+6. **Errors.** The point bootstrap misses cosmic variance on scales larger than the field. A spatial jackknife would be more defensible. **Still open.**
 7. **Notebooks.** `2PACF_notebook*.ipynb` import `build_empirical_Nz` and `load_f277w_response` from `run_pipeline`. These were already missing before today, so those cells were already broken. `load_radius_distributions` and `BIN_EDGES` were kept so other imports still work.
+
+   **Now:** those notebooks are gone. The notebooks are `result.ipynb`, which imports `make_phi`,
+   `load_lf_table` and `isotonic_decreasing`, and `ckeck_pipeline.ipynb`, which defines its own
+   `BIN_EDGES`. `load_radius_distributions` and `BIN_EDGES` in `run_pipeline.py` are now dead code.
+
+Items 1–3 are still open. For item 4, `selection.sn_min` now copies an S/N cut into C, but no comparison run has been recorded.

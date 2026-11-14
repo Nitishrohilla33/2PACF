@@ -1,0 +1,9 @@
+Z_A in [8.0, 9.5): 450 -> 295
+cut 'MEMBER == 1': 295 -> 124
+z7p5_9p5 (z_drop = 8.5): N per M bin {(-23.0, -18.0): 124}, outside all bins 0
+LF: lf_table.csv, nearest row z = 8.5 (interpolated): M* = -21.062, log phi* = -4.425, alpha = -2.29
+data in footprint and outside the star mask: 123 / 124
+C(M_UV, z_drop) at M = -21, -19, -18, -17.5: [0.78 0.5  0.06 0.  ]
+building random catalogues, targets per M bin: [6150]
+M -23.0 to -18.0: N = 123  A_w = 0.1136 +/- 0.9689  r0 = 0.943 +/- 5.027 h^-1 Mpc  bias = 2.062 +/- 8.795  (z_eff = 8.50)
+    log10 M_h = 6.98 [nan, 10.97] h^-1 M_sun (tinker10)

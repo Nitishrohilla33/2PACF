@@ -74,21 +74,29 @@ def compute_ic_ratio(random_ra, random_dec, beta, n_theta_bins=80, theta_min_arc
 
 
 def fit_power_law_mle(theta_centers_arcsec, w_obs, C, RR, random_ra, random_dec,
-                      beta=0.6, min_RR_counts=20, ic_n_theta_bins=80, ic_theta_min_arcsec=1.0, dec0=None):
+                      beta=0.6, min_RR_counts=20, ic_n_theta_bins=80, ic_theta_min_arcsec=1.0, dec0=None,
+                      DD=None, min_DD_counts=0, n_boot=None):
     """Generalised least squares for the single linear amplitude A_w (exact for a Gaussian
-    likelihood with fixed beta). Bins with RR < min_RR_counts or undefined w are left out.
+    likelihood with fixed beta). Bins with RR < min_RR_counts, DD < min_DD_counts or undefined w
+    are left out. n_boot (number of bootstrap resamples) turns on the Hartlap correction.
     Returns A_w, A_w_err, IC/A_w, w_err (per-bin sqrt(diag C))."""
     theta, w_obs, C, RR = map(np.asarray, (theta_centers_arcsec, w_obs, C, RR))
     w_err = np.sqrt(np.diag(C))
     ok = np.isfinite(w_obs) & np.isfinite(w_err) & (w_err > 0) & (RR >= min_RR_counts)
+    if DD is not None:
+        ok &= np.asarray(DD) >= min_DD_counts       # few data pairs -> bootstrap error far too small
     if ok.sum() < 2:
         raise ValueError(f"only {ok.sum()} usable theta bins (min_RR_counts={min_RR_counts})")
 
     ic_over_Aw = compute_ic_ratio(random_ra, random_dec, beta, ic_n_theta_bins, ic_theta_min_arcsec, dec0)
     shape = theta[ok] ** (-beta) - ic_over_Aw
     Cv = C[np.ix_(ok, ok)]
+    if np.linalg.cond(Cv) > 1e8:                     # covariance nearly singular -> use only its diagonal
+        Cv = np.diag(np.diag(Cv))
 
     Cinv_shape = np.linalg.solve(Cv, shape)
+    if n_boot is not None:                           # Hartlap et al. 2007: unbiased inverse covariance
+        Cinv_shape *= (n_boot - ok.sum() - 2) / (n_boot - 1)
     denom = shape @ Cinv_shape
     numerator = w_obs[ok] @ Cinv_shape
 
