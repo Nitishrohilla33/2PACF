@@ -19,11 +19,11 @@ survey:
     z7p5_9p5:            # header ZRANGE = 7.50-9.50, L4WINDOW = 8.00-9.50
       z_a: [8.0, 9.5]    # data: Z_A in [lo, hi)  (= the map's layer-4 window)
       z_true: [7.5, 9.5] # randoms and N(z): true z range of the mocks
-      M_UV_bins: [[-23.0, -18.0]]     # absolute M_UV, bright -> faint, contiguous [lo, hi)
+      M_UV_bins: [[-25.0338500740141, -17.3978714456232]]     # absolute M_UV, bright -> faint, contiguous [lo, hi); current values are the min/max
     z9p5_14p5:           # header ZRANGE = 9.50-14.50, L4WINDOW = 9.50-13.50
       z_a: [9.5, 13.5]
       z_true: [9.5, 14.5]
-      M_UV_bins: [[-23.0, -18.0]]
+      M_UV_bins: [[-25.0338500740141, -17.3978714456232]]
   z_col: Z_A             # photo-z column used for the z_a window
   ra_col: RA
   dec_col: DEC
@@ -51,7 +51,7 @@ selection:
 acf:
   theta_min_arcsec: 10.0  # log-spaced bins (linear bins biased the first bin by 1.8x)
   theta_max_arcsec: 200.0
-  n_theta_bins: 8         # 20 -> 8: with 20-65 galaxies per bin most of 20 bins have DD = 0
+  n_theta_bins: 5         # 20 -> 8: with 20-65 galaxies per bin most of 20 bins have DD = 0
   beta: 0.6
   n_bootstrap: 500
   min_RR_counts: 20

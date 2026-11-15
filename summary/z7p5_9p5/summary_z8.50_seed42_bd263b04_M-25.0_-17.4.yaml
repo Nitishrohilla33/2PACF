@@ -1,0 +1,37 @@
+z_bin: z7p5_9p5
+catalog: candidates_450.fits
+z_a_range:
+- 8.0
+- 9.5
+z_true_range:
+- 7.5
+- 9.5
+z_drop: 8.5
+z_eff: 8.494414530382185
+M_UV_bin:
+- -25.0338500740141
+- -17.3978714456232
+n_data: 123
+n_random: 6150
+theta_bins_arcsec:
+- 10.0
+- 200.0
+- 5
+photoz_sigma: 0.0
+contamination_fraction: 0.0
+A_w_raw: 0.7423990269788344
+A_w_raw_err: 0.9930271506323816
+A_w: 0.7423990269788344
+A_w_err: 0.9930271506323816
+ic_over_Aw: 0.03428813403751075
+r0_h_inv_mpc: 3.0623602612279694
+r0_err_h_inv_mpc: 2.5601182567482543
+sigma8_g: 0.587921455516804
+sigma8_g_err: 0.39319957768757885
+bias: 5.286128468294794
+bias_err: 3.5353421138691425
+halo_bias_model: tinker10
+log10_Mh_h_inv_Msun: 9.62591999489426
+log10_Mh_lo: 6.326907655038658
+log10_Mh_hi: 10.620921511273474
+log10_Mh_Msun: 9.794690301027197
