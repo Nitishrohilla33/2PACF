@@ -6,7 +6,8 @@ Covers `run_pipeline.py`, `depth_aware_randoms.py`, `acf_estimator.py` and `para
 
 State of the repository as of 2026-11-11. **Update 2026-11-13: the pipeline now runs on the vetted
 catalogue and the sky-completeness maps. See section 13 for every change. Sections 2–6 describe the old
-(depth-map) set-up.**
+(depth-map) set-up.** **Update 2026-11-16: the luminosity function at z ≥ 8.5 was
+replaced (section 14), and the pipeline was tested on fake catalogues with known clustering (section 15).**
 
 Related documents: [`../README.md`](../README.md) (quick start and current results),
 [`../ceers_pipeline_summary.md`](../ceers_pipeline_summary.md) (input investigation and code review, Oct 2026),
@@ -791,6 +792,47 @@ Do them in this order, and test each one on the **old** z = 8 bin before going o
 - [ ] Update `README.md` (results table, inputs) and this file (§6, §10 → "done")  — done: ____
 - [ ] Commit: code, `parameters.yaml`, docs, final summaries  — done: ____
 
+### Phase 8: fit of A_w after the fake-catalogue test (added 2026-11-16)
+
+Follows from §15. State on 2026-11-16: `fit_power_law_mle` has a new option `use_expected_covariance`, which
+`run_pipeline.py` switches on. The θ bins are then weighted with the variance expected for unclustered points
+instead of the catalogue's own bootstrap covariance:
+
+```
+var(w) = (1/q) × [1/P_D + 4/(N_d N_r)]      q = RR/P_R,  P_D = N_d(N_d−1)/2,  P_R = N_r(N_r−1)/2
+```
+
+Source: Keihänen et al. 2019 (A&A 631, A73, arXiv:1905.01133), Eq. 18 with ξ = 0, which gives
+`[1/q − 2t/q² + 1] × [1/P_D + 4/(N_d N_r) + 1/P_R]` (`t` = triplet/edge term); the code keeps the leading `1/q`
+part and drops `1/P_R`. For infinitely many randoms this is the Poisson result of Landy & Szalay 1993
+(ApJ 412, 64). The numbers below come from refitting the cached fake catalogues of §15 with this formula.
+
+- [x] 8.1 Weight the θ bins with the expected covariance, not the catalogue's own bootstrap covariance (§15.7, item 1).
+      Checked: mean A_w at N = 123 goes from 0.67 to 0.93 (truth 1.1), and from −0.14 to 0.01 for unclustered
+      catalogues; σ_w agrees with the true scatter of unclustered catalogues within about 5 %
+      (10 % too large in the widest bin)  — done: 2026-11-16
+- [x] 8.2 Drop θ bins on the **expected** number of pairs (`P_D * q >= min_DD_counts`), not on the measured DD.
+      With the measured DD, a bin is kept only when it fluctuates up: unclustered catalogues of N = 49 give
+      A_w = +0.27 on average (0.00 with the expected-pairs cut). This affects `z9p5_14p5`  — done: 2026-11-16
+- [ ] 8.3 Put the choice in `parameters.yaml` (e.g. `acf.fit_covariance: expected | bootstrap`) instead of the
+      hard-coded `use_expected_covariance=True` in `run_pipeline.py`, and write it into the summary YAML  — done: ____
+- [ ] 8.4 Rerun `result.ipynb` so that `results_table.csv` and the figures use the new fit. Both z-bins were
+      rerun on 2026-11-16: `z7p5_9p5` A_w = 1.01 ± 0.65 (was 0.82 ± 1.03), `z9p5_14p5` A_w = −2.37 ± 1.91
+      (was −1.97 ± 1.90)  — done: ____
+- [ ] 8.5 Decide which error goes into `w_err` (`acf_results_*.csv`) and onto the w(θ) figure: it is still the
+      bootstrap error, which the fit no longer uses  — done: ____
+- [x] 8.6 `test.ipynb`: pass `n_data` and `use_expected_covariance` in `measure`, rerun the Monte Carlo (the cache
+      key changed with `acf_estimator.py`; about 34 minutes) and update the numbers in §15. Results in §15.8  — done: 2026-11-16
+- [ ] 8.7 Model averaged over each θ bin instead of the bin-centre value (§15.7, item 2).
+      Expected: mean A_w 0.93 → 0.99 at N = 123  — done: ____
+- [ ] 8.8 Full integral-constraint form (§15.7, item 3). Expected: 0.99 → 1.13 at N = 123 and 1.09 at N = 500,
+      but 1.28 at N = 49 and 80; test at the real sample sizes before adopting  — done: ____
+- [ ] 8.9 Error bar when the galaxies are clustered. The expected covariance contains pair noise only: for
+      A_w = 1.1 it reports 0.65 at N = 123 against a true scatter of 0.81, and 0.16 against 0.53 at N = 500.
+      Quote A_w/σ only as the significance against no clustering; for the uncertainty of A_w use the scatter
+      of fake catalogues made with the fitted A_w (§15.7, item 4)  — done: ____
+- [ ] 8.10 Optional: keep the `(1 − q)` factor and the `1/P_R` term in the variance (q = 0.14 in the widest bin)  — done: ____
+
 ---
 
 ## 13. Switch to the vetted catalogue + sky-completeness maps (done 2026-11-13)
@@ -1010,3 +1052,315 @@ Rerun after this change, with the M_UV bins merged to one per z-bin (`[[-23.0, -
 | `z9p5_14p5` (z_eff 10.43) | 49 | −1.23 ± 2.52 | – | – | – |
 
 Still no detection (A_w/σ = 0.1 and −0.5).
+
+---
+
+## 14. Luminosity function at z ≥ 8.5 replaced; θ bins 5 → 4 (done 2026-11-16)
+
+### 14.1 Why
+
+The LF table was made from Bouwens+21 (doi:10.3847/1538-3881/abf83e). Its best-fit evolution is fitted to
+z ≈ 2–10 only, so every row above z = 10.2 was an extrapolation outside that range, and both z-bins of the
+pipeline depend on it. The LF now comes from a z > 8.5 measurement instead.
+
+### 14.2 What `make_lf_table.py` does now
+
+Two sources, switched at `Z_SWITCH = 8.5`:
+
+| z | Source | How rows are made |
+|---|---|---|
+| < 8.5 | Bouwens+21, unchanged | Published rows at z = 2.1–7.9; z_drop values between them interpolated linearly in z; below 2.1 from their best-fit evolution (placeholder). The z = 8.9 row is only the upper anchor for the interpolation to z = 8.0 and is not written. The z = 10.2 row (Oesch+18a) is no longer used |
+| ≥ 8.5 | Table 1 of the z > 8.5 binned-LF paper (image `inputs/lf/WhatsApp Image 2026-11-16 at 11.31.18 AM.jpeg`) | Schechter fits in four z_a slices with **M\* = −21 and α = −1.71 held fixed**; only φ\* changes with z |
+
+The four slices (φ\* errors exclude cosmic variance):
+
+| z_a slice | z_eff | φ\* [10⁻⁵ Mpc⁻³ mag⁻¹] |
+|---|---|---|
+| 8.5–9.5 | 8.91 | 13.9 ± 1.8 |
+| 9.5–10.5 | 9.72 | 5.8 ± 1.9 |
+| 10.5–11.5 | 10.47 | 7.4 ± 2.1 |
+| 11.5–13.5 | 11.98 | 3.8 ± 1.4 |
+
+- Between z_eff = 8.91 and 11.98, log φ\* is interpolated linearly in z between the neighbouring slices.
+- For z = 8.5–8.91 and above 11.98 it is extended from the nearest slice with the weighted slope
+  d log φ\*/dz = −0.19 ± 0.05. The slope error × |Δz| is added in quadrature to the error of that slice.
+- Rows above z = 13.5 are beyond the last slice and remain placeholders.
+- The M\* and α error columns are empty at z ≥ 8.5 because both were fixed in the fits.
+
+### 14.3 Old against new
+
+| z | old M\* | old log φ\* | old α | new M\* | new log φ\* | new α | φ\* new / old |
+|---|---|---|---|---|---|---|---|
+| 8.0 | −20.95 | −4.11 | −2.24 | −20.95 | −4.11 | −2.24 | 1.0 |
+| 8.5 | −21.06 | −4.43 | −2.29 | −21.00 | −3.78 | −1.71 | 4.4 |
+| 9.0 | −21.15 | −4.73 | −2.33 | −21.00 | −3.90 | −1.71 | 6.8 |
+| 10.0 | −21.18 | −5.27 | −2.37 | −21.00 | −4.20 | −1.71 | 12 |
+| 12.0 | −21.27 | −6.24 | −2.60 | −21.00 | −4.42 | −1.71 | 66 |
+
+The new LF is higher and falls much more slowly with z, and its faint-end slope is flatter.
+
+`run_pipeline.make_phi` interpolates the three parameters linearly in z between table rows, so the LF changes
+smoothly from the last Bouwens+21 row (z = 8.0) to the first new row (z = 8.5). The `z7p5_9p5` bin
+(z_true 7.5–9.5) therefore uses Bouwens+21 below z = 8, a blend from 8.0 to 8.5, and the new LF above.
+
+### 14.4 Files
+
+| File | Change |
+|---|---|
+| `codes/make_lf_table.py` | Rewritten as above; output is now `inputs/lf/lf_table.csv` |
+| `codes/parameters.yaml` | `paths.lf_table: inputs/lf/lf_table.csv` (was `inputs/lf_table.csv`); `acf.n_theta_bins: 4` (was 5) |
+| `codes/result.ipynb` | New cell: all LFs of the table in two panels (z < 8.5 and z ≥ 8.5), saved as `summary/lf_all_redshifts.png` |
+| `inputs/lf/` | Holds the table and the image of the paper's table. `inputs/` is git-ignored, so on a new copy run `python make_lf_table.py` (the four φ\* values are in the script) |
+
+`README.md` and sections 2–10 of this file still name the old path `inputs/lf_table.csv`.
+
+### 14.5 Rerun of both z-bins
+
+Full-sample M_UV bin (−25.03 to −17.40) as on 2026-11-15. Two things changed together, the LF and the number
+of θ bins (5 → 4), so the changes in A_w cannot be assigned to one of them. z_eff does not depend on the θ bins.
+
+| z-bin | N | z_eff before → now | A_w before (old LF, 5 bins) | A_w now (new LF, 4 bins) | r0 now [h⁻¹ Mpc] | bias now | log10 M_h now [h⁻¹ M☉] |
+|---|---|---|---|---|---|---|---|
+| `z7p5_9p5` | 123 | 8.49 → 8.59 | 0.74 ± 0.99 | 0.82 ± 1.03 | 3.2 ± 2.5 | 5.5 ± 3.4 | 9.68 [6.98, 10.61] |
+| `z9p5_14p5` | 49 | 10.42 → 10.91 | −1.32 ± 2.02 | −1.97 ± 1.90 | – | – | – |
+
+Still no detection (A_w/σ = 0.8 and −1.0). Run tags: `z8.50_seed42_95a6a478`, `z12.00_seed42_0ab71b8f`.
+
+---
+
+## 15. Test on fake catalogues with known clustering (`test.ipynb`, 2026-11-16)
+
+**Result: the measurement of w(θ) is correct and gives no false signal, but the fit returns an A_w that is
+too low (−25 % at large N, about −40 % at N = 123), the reported errors are not calibrated, and the real
+samples (123 and 49 galaxies) are too small to detect A_w = 1.1.** The pipeline code was not changed.
+
+**Update, later on 2026-11-16: the fit was changed (expected covariance and expected-pairs cut, §12 Phase 8) and
+the test was rerun. Sections 15.3–15.5 describe the old fit; 15.8 has the new results and 15.9 explains the
+full integral constraint.**
+
+`codes/test.ipynb` is git-ignored, and its files are in `outputs/test_mock/` (also ignored), so this section
+is the record of the test in git. The Monte Carlo is cached in `outputs/test_mock/mc/` (cache key `94fa9bd1`);
+redoing it takes about 34 minutes on 8 threads.
+
+### 15.1 What was done
+
+| Item | Value |
+|---|---|
+| True clustering | w(θ) = A_w θ^-β with **A_w = 1.1**, β = 0.6 (θ in arcsec) |
+| Fake catalogues | Lognormal density field on 1″ cells; N positions picked from 2,000,000 positions made by the pipeline's own random generator (`make_randoms_cells`), so they have the pipeline's footprint, star mask and selection |
+| Footprint | `z7p5_9p5`, 81.7 arcmin² outside the star mask |
+| Pipeline settings | Those of section 14: θ = 10–200″ in 4 bins, 50 randoms per galaxy, 500 bootstraps, `min_DD_counts: 5` |
+| Monte Carlo | 400 fake catalogues for each N = 30, 49, 80, 123, 200, 300, 500, 750, 1000, 1500, 2000, 3000, once clustered and once unclustered (A_w = 0). Every catalogue uses a new density field, so the scatter includes cosmic variance |
+| Fit in the Monte Carlo | Same functions as the pipeline; a faster bootstrap is used, which gives exactly the same covariance and A_w as `bootstrap_errors` (checked at N = 49, 123, 300) |
+
+### 15.2 What works
+
+- **w(θ) measurement.** The mean w(θ) of 300 fake catalogues of 1500 galaxies (pipeline `pair_counts` and
+  `landy_szalay`, 10 bins from 5″ to 640″) agrees with the expected value: χ² = 13.6 for 10 bins. The expected
+  value is the full integral-constraint form, A_w(θ^-β − 2ψ̄ + IC)/(1 + A_w IC), with θ^-β averaged over each bin.
+  The simpler model that the pipeline fits gives χ² = 101.4 against the same points.
+- **No false signal.** None of the 4800 unclustered catalogues gave A_w/σ ≥ 2.
+- **End to end.** `run_pipeline.py` itself, run on a fake catalogue as a separate process, gave
+  A_w = 0.03 ± 1.16 (N = 123) and 1.34 ± 0.29 (N = 1000), both within 1σ of 1.1.
+
+### 15.3 The fit is biased low
+
+Clustered fake catalogues, truth A_w = 1.1:
+
+| N | mean A_w | median A_w | true scatter (16–84 %)/2 | median reported error | A_w/σ ≥ 2 | power at 5 % false alarms |
+|---|---|---|---|---|---|---|
+| 49 | 0.59 | 0.22 | 1.92 | 2.72 | 0.0 % | 16 % |
+| 123 | 0.67 | 0.55 | 0.76 | 1.13 | 2.0 % | 38 % |
+| 300 | 0.79 | 0.71 | 0.52 | 0.55 | 15 % | 79 % |
+| 500 | 0.82 | 0.77 | 0.47 | 0.38 | 51 % | 93 % |
+| 1000 | 0.80 | 0.76 | 0.36 | 0.23 | 90 % | 99.5 % |
+| 3000 | 0.84 | 0.79 | 0.31 | 0.11 | 100 % | 100 % |
+
+"Power" is the fraction of clustered catalogues with A_w above the value that only 5 % of unclustered
+catalogues of the same size reach; it does not use the reported errors.
+
+Since the measured w(θ) is right (15.2), the offset comes from `fit_power_law_mle`. The same measurements
+were fitted again, changing one thing at a time (mean A_w over all catalogues with N ≥ 500):
+
+| Fit | mean A_w | offset |
+|---|---|---|
+| 1. Pipeline as it is | 0.830 ± 0.008 | −25 % |
+| 2. One covariance for all catalogues of that N (mean of the bootstrap covariances) | 0.955 ± 0.009 | −13 % |
+| 3. + θ^-β averaged over the pairs in each bin, not taken at the bin centre | 1.016 ± 0.009 | −8 % |
+| 4. + full integral constraint (form of 15.2) | 1.090 ± 0.010 | −1 % |
+
+- Step 2: a catalogue's own bootstrap error is correlated with its own w (correlation 0.6–0.9 per θ bin), so
+  bins that scatter low get more weight.
+- Step 3: the four bins are wide (a factor 2.1 each); the bin-averaged θ^-β is 0.96 of the bin-centre value.
+- Step 4: IC/A_w = 0.0343 is the same number the pipeline uses; only the form of the correction differs.
+
+Fit 3 also removes most of the offset at small N (mean 0.98 at N = 49 and N = 123). Fit 4 overshoots there
+(1.27 at N = 49, 1.11 at N = 123).
+
+### 15.4 The reported errors
+
+- **Unclustered catalogues:** the spread of A_w / reported error is 0.55–0.64 at every N, so the bootstrap
+  error is about 1.7 times too large when there is no clustering.
+- **Clustered, small N:** still too large (N = 123: reported 1.13, true scatter 0.76).
+- **Clustered, N ≥ 500:** too small, by a factor 1.6 at N = 1000 and 2.7 at N = 3000. The true scatter stops
+  falling at about 28–30 % of A_w, while the bootstrap error keeps falling; the bootstrap resamples galaxies
+  inside one field and so cannot see field-to-field variance. This is the point of §9.3, now measured.
+
+### 15.5 Minimum number of galaxies
+
+For A_w = 1.1, this footprint, θ = 10–200″ and the pipeline as it is:
+
+| Criterion | N needed |
+|---|---|
+| Pipeline reports A_w/σ ≥ 2 in 50 % of catalogues | about 490 |
+| Pipeline reports A_w/σ ≥ 2 in 80 % of catalogues | about 740 |
+| Pipeline reports A_w/σ ≥ 3 in 50 % of catalogues | about 860 |
+| Power 50 % at 5 % false alarms | about 170 |
+| Power 80 % at 5 % false alarms | about 320 |
+| True scatter below 50 % of A_w | about 280 |
+| True scatter below 33 % of A_w | about 990 |
+
+At the sizes of the real samples:
+
+| z-bin | N | recovered A_w (median) | 68 % of catalogues | A_w/σ ≥ 2 | power |
+|---|---|---|---|---|---|
+| `z7p5_9p5` | 123 | 0.55 | −0.16 to 1.35 | 2.0 % | 38 % |
+| `z9p5_14p5` | 49 | 0.22 | −1.17 to 2.68 | 0.0 % | 16 % |
+
+So the real results of 14.5 (A_w = 0.82 ± 1.03 and −1.97 ± 1.90) are what this test gives for both clustered
+(A_w = 1.1) and unclustered galaxies: at these sizes the pipeline cannot tell the two apart.
+
+### 15.6 What the test does not cover
+
+1. The fake galaxies come from the pipeline's own randoms. The test checks the estimator and the fit, **not**
+   whether the completeness, luminosity function and sky map describe the real data.
+2. Only one truth (A_w = 1.1, β = 0.6) and only the `z7p5_9p5` footprint. The N = 49 numbers use this
+   footprint too; the required N changes with A_w.
+3. The steps after the fit (N(z), Limber inversion to r0, bias, halo mass), photo-z scatter and contamination.
+
+### 15.7 Possible changes to the fit (not done)
+
+**Update 2026-11-16: item 1 is done (expected covariance). The remaining items and the checks of the new fit
+are in the to-do list, §12 Phase 8.**
+
+Suggested by the table in 15.3, in order of effect:
+
+1. Do not weight each catalogue with its own bootstrap covariance. Options: a covariance from fake catalogues
+   like these, or an error model that does not depend on the measured DD.
+2. Evaluate the model as the RR-weighted mean of θ^-β in each bin instead of at the bin centre.
+3. Use the full integral-constraint form. At N ≲ 123 this step overshoots (15.3), so test it at the real
+   sample sizes before adopting it.
+4. Take the errors from the scatter of fake catalogues: the bootstrap is too large at small N and too small
+   at large N (15.4).
+
+### 15.8 Rerun with the new fit (2026-11-16)
+
+**Result: the bias is now about −15 % at every N (was −24 to −46 %), unclustered catalogues give A_w = 0, and
+the error bar is right when there is no clustering. With clustering the error bar is too small, increasingly so
+at large N.**
+
+What changed since 15.3–15.5: `fit_power_law_mle` weights the θ bins with the expected covariance and drops bins
+on the expected number of pairs (§12 Phase 8, items 8.1 and 8.2). `measure` in `test.ipynb` now calls the fit
+the same way as `run_pipeline.py` (`n_data=len(ra_d), use_expected_covariance=True`); the check of section 4
+passes again. The Monte Carlo was redone (cache key `2700a5af`; the old-fit results are still there as `94fa9bd1`).
+
+Truth A_w = 1.1 for the clustered catalogues, 0 for the unclustered ones:
+
+| N | clustered: mean A_w | median | true scatter (16–84 %)/2 | median reported error | pull width | A_w/σ ≥ 2 | power at 5 % false alarms | unclustered: mean A_w | unclustered: A_w/σ ≥ 2 |
+|---|---|---|---|---|---|---|---|---|---|
+| 49 | 0.82 | 0.45 | 2.18 | 1.90 | 1.15 | 11 % | 18 % | −0.01 | 2.5 % |
+| 123 | 0.93 | 0.83 | 0.81 | 0.65 | 1.24 | 28 % | 36 % | 0.01 | 3.3 % |
+| 300 | 0.93 | 0.83 | 0.54 | 0.27 | 2.04 | 74 % | 82 % | 0.02 | 2.5 % |
+| 500 | 0.93 | 0.83 | 0.53 | 0.16 | 3.30 | 90 % | 94 % | −0.02 | 1.5 % |
+| 1000 | 0.92 | 0.80 | 0.44 | 0.08 | 5.52 | 99.8 % | 99.8 % | 0.00 | 3.3 % |
+| 3000 | 0.93 | 0.82 | 0.38 | 0.03 | 14.4 | 100 % | 100 % | 0.00 | 1.8 % |
+
+- **Bias.** Mean A_w is 0.92–0.96 for every N from 123 up. The rest of the offset is the model (15.9 and
+  items 8.7, 8.8). The old fit gave 0.67 at N = 123 and 0.59 at N = 49.
+- **Unclustered catalogues.** Mean A_w is 0 at every N (old fit: −0.14 at N = 123, −0.18 at N = 49). The spread of
+  A_w / reported error is 0.84–0.97 and 1.5–3.3 % of the catalogues reach A_w/σ ≥ 2, close to the 2.3 % expected.
+  With the old fit the spread was 0.55–0.64 and no catalogue reached 2σ.
+- **Error bar with clustering.** The expected covariance contains pair noise only. The reported error is about
+  20 % too small at N = 123, and the pull width reaches 3.3 at N = 500 and 14 at N = 3000 (item 8.9). Read A_w/σ
+  as the significance against no clustering, not as the precision of A_w.
+- **Power is unchanged** (36 % against 38 % at N = 123, 94 % against 93 % at N = 500). The data carry no more
+  information than before; the old error bar was inflated and the new one is not.
+- **True scatter at large N** is larger than with the old fit (0.44 against 0.36 at N = 1000) and stops falling
+  at about 35–40 % of A_w (old fit: 28–30 %).
+
+Minimum number of galaxies (A_w = 1.1, this footprint, θ = 10–200″):
+
+| Criterion | old fit | new fit |
+|---|---|---|
+| Pipeline reports A_w/σ ≥ 2 in 50 % of catalogues | about 490 | about 190 |
+| Pipeline reports A_w/σ ≥ 2 in 80 % of catalogues | about 740 | about 370 |
+| Pipeline reports A_w/σ ≥ 3 in 50 % of catalogues | about 860 | about 290 |
+| Power 50 % at 5 % false alarms | about 170 | about 160 |
+| Power 80 % at 5 % false alarms | about 320 | about 290 |
+| True scatter below 50 % of A_w | about 280 | about 290 |
+| True scatter below 33 % of A_w | about 990 | not reached up to N = 3000 |
+
+At the sizes of the real samples, new fit:
+
+| z-bin | N | recovered A_w (median) | 68 % of catalogues | reported error | A_w/σ ≥ 2 | power |
+|---|---|---|---|---|---|---|
+| `z7p5_9p5` | 123 | 0.83 | 0.04 to 1.65 | 0.65 | 28 % | 36 % |
+| `z9p5_14p5` | 49 | 0.45 | −1.27 to 3.08 | 1.90 | 11 % | 18 % |
+
+End to end (`run_pipeline.py` on a fake catalogue): A_w = 0.06 ± 0.65 at N = 123 and 1.40 ± 0.08 at N = 1000.
+The second is 3.8 reported errors above 1.1 but only 0.7 of the true scatter (0.44), which shows the point about
+the error bar.
+
+Real data with the new fit: `z7p5_9p5` A_w = 1.01 ± 0.65, `z9p5_14p5` A_w = −2.37 ± 1.91 (first θ bin dropped: 3.6
+expected pairs). Still no detection.
+
+### 15.9 The full integral constraint (to-do item 8.8)
+
+**Why there is a correction.** The estimator compares the data pairs with a random distribution of the same
+number of galaxies, and that number comes from the same field. If the field sits on an overdensity, the mean
+density is overestimated and the measured w(θ) comes out too low at every θ. The offset is the integral
+constraint IC: the true w averaged over all pairs in the field.
+
+**Simple form, fitted by the pipeline:**
+
+```
+w_measured(θ) = A_w θ^-β − IC                        IC = A_w × 0.0343 for the z7p5_9p5 footprint
+```
+
+**Full form, which matches the fake catalogues (15.2: χ² = 13.6 against 101.4 for the simple form):**
+
+```
+w_measured(θ) = [ A_w θ^-β − 2 ψ̄(θ) + IC ] / (1 + IC)
+```
+
+It differs from the simple form in two ways:
+
+- **Division by (1 + IC).** The pair counts are normalised with the observed number of galaxies. For A_w = 1.1,
+  IC = 0.038, so w is 3.6 % lower at every θ.
+- **ψ̄(θ) in place of IC.** ψ̄(θ) is the clustering between a galaxy that has a neighbour at separation θ and the
+  rest of the field. If every galaxy saw the field in the same way, ψ̄ = IC and the numerator would reduce to the
+  simple form. The field is long and narrow (1350 × 462″), so ψ̄ / IC = 1.01, 1.015, 1.027, 1.04 in the four θ bins.
+
+Both lower the model, so the fit has to raise A_w. The model is no longer a multiple of A_w, so the fit is
+iterated until A_w stops changing. ψ̄(θ) is computed from the randoms (`field_geometry` in `test.ipynb`).
+
+**What is left after the new fit** (section 6 of `test.ipynb`, rerun; mean A_w for N ≥ 500, truth 1.1):
+
+| Fit | mean A_w | offset |
+|---|---|---|
+| 1. Pipeline now (expected covariance, expected-pairs cut) | 0.935 ± 0.010 | −15 % |
+| 2. One bootstrap covariance for all catalogues of that N | 0.955 ± 0.009 | −13 % |
+| 3. + θ^-β averaged over the pairs in each bin (item 8.7) | 1.016 ± 0.009 | −8 % |
+| 4. + full integral constraint (item 8.8) | 1.090 ± 0.010 | −1 % |
+
+Row 1 is now close to row 2, so the weighting problem of 15.3 is solved. The remaining offset is about 6 % from
+the bin-centre model and about 7 % from the simple integral constraint. Rows 2–4 use the mean bootstrap
+covariance, as in 15.3.
+
+**Cautions.**
+
+- With the expected covariance, the bin-averaged model and the full form together, a refit of the old cache gave
+  1.13 at N = 123 and 1.09 at N = 500, but 1.28 at N = 49 and N = 80. Test at the real sample sizes before adopting.
+- The formula was derived in the notebook, along the lines of the bias calculation of Landy & Szalay 1993, and
+  checked against the fake catalogues. It has not been matched to a numbered equation in a paper, so do not cite
+  it as one yet.

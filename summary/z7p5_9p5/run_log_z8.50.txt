@@ -5,5 +5,5 @@ LF: lf_table.csv, nearest row z = 8.5 (extrapolated): M* = -21.0, log phi* = -3.
 data in footprint and outside the star mask: 123 / 124
 C(M_UV, z_drop) at M = -21, -19, -18, -17.5: [0.78 0.5  0.06 0.  ]
 building random catalogues, targets per M bin: [6150]
-M -25.0338500740141 to -17.3978714456232: N = 123  A_w = 0.8238 +/- 1.026  r0 = 3.204 +/- 2.494 h^-1 Mpc  bias = 5.539 +/- 3.448  (z_eff = 8.59)
-    log10 M_h = 9.68 [6.98, 10.61] h^-1 M_sun (tinker10)
+M -25.0338500740141 to -17.3978714456232: N = 123  A_w = 1.011 +/- 0.6495  r0 = 3.642 +/- 1.462 h^-1 Mpc  bias = 6.136 +/- 1.971  (z_eff = 8.59)
+    log10 M_h = 9.89 [9.03, 10.43] h^-1 M_sun (tinker10)

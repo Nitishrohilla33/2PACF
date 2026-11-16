@@ -331,7 +331,7 @@ def main(config_path, z_bin):
         A_w_raw, A_w_err_raw, ic_over_Aw, w_err = fit_power_law_mle(theta_centers, w_obs, cov, RR, ra_r, dec_r,
                                                                     beta=beta, min_RR_counts=acf_cfg["min_RR_counts"],
                                                                     DD=DD, min_DD_counts=acf_cfg.get("min_DD_counts", 0),
-                                                                    n_boot=acf_cfg["n_bootstrap"])
+                                                                    n_boot=acf_cfg["n_bootstrap"], n_data=len(data), use_expected_covariance=True)
         f_cont = acf_cfg.get("contamination_fraction", 0.0)       # unclustered interlopers dilute w by (1-f)^2
         A_w, A_w_err = A_w_raw / (1 - f_cont) ** 2, A_w_err_raw / (1 - f_cont) ** 2
         pd.DataFrame({"theta_arcsec": theta_centers, "theta_lo": theta_bins[:-1], "theta_hi": theta_bins[1:],

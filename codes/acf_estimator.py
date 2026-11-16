@@ -75,33 +75,57 @@ def compute_ic_ratio(random_ra, random_dec, beta, n_theta_bins=80, theta_min_arc
 
 def fit_power_law_mle(theta_centers_arcsec, w_obs, C, RR, random_ra, random_dec,
                       beta=0.6, min_RR_counts=20, ic_n_theta_bins=80, ic_theta_min_arcsec=1.0, dec0=None,
-                      DD=None, min_DD_counts=0, n_boot=None):
+                      DD=None, min_DD_counts=0, n_boot=None, n_data=None, use_expected_covariance=False):
     """Generalised least squares for the single linear amplitude A_w (exact for a Gaussian
     likelihood with fixed beta). Bins with RR < min_RR_counts, DD < min_DD_counts or undefined w
     are left out. n_boot (number of bootstrap resamples) turns on the Hartlap correction.
     Returns A_w, A_w_err, IC/A_w, w_err (per-bin sqrt(diag C))."""
     theta, w_obs, C, RR = map(np.asarray, (theta_centers_arcsec, w_obs, C, RR))
     w_err = np.sqrt(np.diag(C))
-    ok = np.isfinite(w_obs) & np.isfinite(w_err) & (w_err > 0) & (RR >= min_RR_counts)
-    if DD is not None:
-        ok &= np.asarray(DD) >= min_DD_counts       # few data pairs -> bootstrap error far too small
+
+    DD_expected = None
+    if n_data is not None and n_data >= 2 and len(random_ra) >= 2:
+        n_rand = len(random_ra)
+        P_D = n_data * (n_data - 1) / 2.0             # unordered data pairs
+        P_R = n_rand * (n_rand - 1) / 2.0             # unordered random pairs
+        q = RR / P_R                                  # fraction of random pairs in each theta bin
+        DD_expected = P_D * q
+
+    if use_expected_covariance:
+        if DD_expected is None:
+            raise ValueError("use_expected_covariance needs n_data >= 2 and at least two randoms")
+        # Poisson variance of Landy-Szalay for unclustered points (Keihanen+19 eq. 18, leading term)
+        C_fit = np.diag((1.0 / q) * (1.0 / P_D + 4.0 / (n_data * n_rand)))
+    else:
+        C_fit = C.copy()
+
+    ok = np.isfinite(w_obs) & (RR >= min_RR_counts)
+    if not use_expected_covariance:
+        ok &= np.isfinite(w_err) & (w_err > 0)
+    if min_DD_counts > 0:
+        if use_expected_covariance:
+            ok &= DD_expected >= min_DD_counts        # expected pairs: the cut does not depend on the data
+        elif DD is not None:
+            ok &= np.asarray(DD) >= min_DD_counts     # few measured pairs -> bootstrap error far too small
+
     if ok.sum() < 2:
         raise ValueError(f"only {ok.sum()} usable theta bins (min_RR_counts={min_RR_counts})")
 
     ic_over_Aw = compute_ic_ratio(random_ra, random_dec, beta, ic_n_theta_bins, ic_theta_min_arcsec, dec0)
     shape = theta[ok] ** (-beta) - ic_over_Aw
-    Cv = C[np.ix_(ok, ok)]
+    Cv = C_fit[np.ix_(ok, ok)]
     if np.linalg.cond(Cv) > 1e8:                     # covariance nearly singular -> use only its diagonal
         Cv = np.diag(np.diag(Cv))
 
     Cinv_shape = np.linalg.solve(Cv, shape)
-    if n_boot is not None:                           # Hartlap et al. 2007: unbiased inverse covariance
+    if n_boot is not None and not use_expected_covariance:                           # Hartlap et al. 2007: unbiased inverse covariance
         Cinv_shape *= (n_boot - ok.sum() - 2) / (n_boot - 1)
     denom = shape @ Cinv_shape
     numerator = w_obs[ok] @ Cinv_shape
 
     A_w = numerator / denom
     return A_w, 1.0 / np.sqrt(denom), ic_over_Aw, w_err
+
 
 
 def limber_transform_Aw_to_r0(A_w, beta, N_z_func, z_grid, cosmo, h):
