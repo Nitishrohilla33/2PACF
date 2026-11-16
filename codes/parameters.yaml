@@ -9,7 +9,7 @@ paths:
   segm_map: "inputs/survey/bundle_sextractor/detection/segmentation_total_binary.fits"
   valid_mask: null      # optional bool image for the randoms; do not combine one already masked by segmentation with blending_check: footprint
   completeness: "inputs/depth_maps/CEERS_SkyCompleteness_zbins/CEERS_SkyCompleteness_zbins/{z_bin}/ceers_skycompleteness_mocks_{z_bin}.fits"  # injected mocks -> C(M_UV, z_true)
-  lf_table: inputs/lf_table.csv       # Schechter UV LF vs z (real / interpolated / extrapolated), made by make_lf_table.py
+  lf_table: inputs/lf/lf_table.csv    # Schechter UV LF vs z (real / interpolated / extrapolated), made by make_lf_table.py
   output_dir: "outputs/{z_bin}/"             # acf_results_*.csv (w(theta) per M bin)
   summary_dir: "summary/{z_bin}/"            # summary_*.yaml (A_w, r0, bias) and the run log
   random_catalog_dir: "random_catalogs/"
@@ -51,7 +51,7 @@ selection:
 acf:
   theta_min_arcsec: 10.0  # log-spaced bins (linear bins biased the first bin by 1.8x)
   theta_max_arcsec: 200.0
-  n_theta_bins: 5         # 20 -> 8: with 20-65 galaxies per bin most of 20 bins have DD = 0
+  n_theta_bins: 4         # 20 -> 8: with 20-65 galaxies per bin most of 20 bins have DD = 0
   beta: 0.6
   n_bootstrap: 500
   min_RR_counts: 20

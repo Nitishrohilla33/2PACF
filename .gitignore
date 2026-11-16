@@ -67,6 +67,7 @@ dist/
 
 # Jupyter
 .ipynb_checkpoints/
+codes/test.ipynb
 
 # Secrets
 .env
