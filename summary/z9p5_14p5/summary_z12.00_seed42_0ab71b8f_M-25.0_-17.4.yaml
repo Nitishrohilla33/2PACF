@@ -15,14 +15,14 @@ n_data: 49
 n_random: 2450
 theta_bins_arcsec:
 - 10.0
-- 200.0
-- 4
+- 500.0
+- 3
 photoz_sigma: 0.0
 contamination_fraction: 0.0
-A_w_raw: -2.3710186133100417
-A_w_raw_err: 1.9049384357143146
-A_w: -2.3710186133100417
-A_w_err: 1.9049384357143146
+A_w_raw: -0.9298226756471013
+A_w_raw_err: 1.668046894763286
+A_w: -0.9298226756471013
+A_w_err: 1.668046894763286
 ic_over_Aw: 0.03422192451718972
 r0_h_inv_mpc: .nan
 r0_err_h_inv_mpc: .nan

@@ -34,7 +34,7 @@ survey:
 
 injection:
   random_seed: 42
-  random_to_data_ratio: 50    # few data galaxies: make DR/RR noise negligible
+  random_to_data_ratio: 1000    # few data galaxies: make DR/RR noise negligible
   layer: 4                    # sky-map layer: 4 = full selection with z_a inside the bin's window
   blending_check: none        # none: the map comes from injections into the real image, so blending losses are already in it (and no segmentation map here)
   stamp_padding: 9.0
@@ -50,10 +50,10 @@ selection:
 
 acf:
   theta_min_arcsec: 10.0  # log-spaced bins (linear bins biased the first bin by 1.8x)
-  theta_max_arcsec: 200.0
-  n_theta_bins: 4         # 20 -> 8: with 20-65 galaxies per bin most of 20 bins have DD = 0
+  theta_max_arcsec: 500.0
+  n_theta_bins: 5        # 20 -> 8: with 20-65 galaxies per bin most of 20 bins have DD = 0
   beta: 0.6
-  n_bootstrap: 500
+  n_bootstrap: 200
   min_RR_counts: 20
   min_DD_counts: 5        # drop theta bins with fewer data-data pairs (their bootstrap error is unreliable)
   photoz_sigma: 0.0            # keep 0: layer 4 already contains P(z_a in window | z_true), so N(z) is in true z over z_true

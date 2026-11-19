@@ -3,6 +3,12 @@
 # =========================================================
 *.fits
 *.fits.gz
+*.fits.fz
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+__MACOSX/
 *.hdf5
 *.h5
 *.pkl
@@ -37,6 +43,7 @@ ipnybs/
 joined_catalog.csv
 cat_r_eff.csv
 CEERS_z*_selected.csv
+random_catalogs/
 random_catalog*.csv
 
 # =========================================================
@@ -86,6 +93,4 @@ codes/test.ipynb
 *.tmp
 *.bak
 *~
-injection_statistics/
-ipnybs/
 

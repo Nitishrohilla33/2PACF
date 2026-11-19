@@ -4,6 +4,6 @@ z9p5_14p5 (z_drop = 12.0): N per M bin {(-25.0338500740141, -17.3978714456232): 
 LF: lf_table.csv, nearest row z = 12.0 (extrapolated): M* = -21.0, log phi* = -4.424, alpha = -1.71
 data in footprint and outside the star mask: 49 / 49
 C(M_UV, z_drop) at M = -21, -19, -18, -17.5: [0.65 0.31 0.   0.  ]
-building random catalogues, targets per M bin: [2450]
-M -25.0338500740141 to -17.3978714456232: N = 49  A_w = -2.371 +/- 1.905  r0 = nan +/- nan h^-1 Mpc  bias = nan +/- nan  (z_eff = 10.91)
+building random catalogues, targets per M bin: [49000]
+M -25.0338500740141 to -17.3978714456232: N = 49  A_w = -0.8338 +/- 1.656  r0 = nan +/- nan h^-1 Mpc  bias = nan +/- nan  (z_eff = 10.91)
     log10 M_h = nan [nan, nan] h^-1 M_sun (tinker10)
