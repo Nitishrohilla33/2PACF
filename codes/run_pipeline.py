@@ -82,8 +82,14 @@ def load_completeness(path, cosmo, monotone=True, m_max=np.inf, layer=4, dz=0.1,
     n_all = np.histogram2d(z, M, [z_e, M_e])[0]
     n_sel = np.histogram2d(z[passed], M[passed], [z_e, M_e])[0]
     c = np.clip(n_sel / np.maximum(n_all, 1), 0.0, 1.0)
-    if monotone:
-        c = np.array([isotonic_decreasing(row) for row in c])
+    for row_c, row_n in zip(c, n_all):
+        filled = np.flatnonzero(row_n > 0)
+        if not filled.size:
+            continue
+        first = filled[0]                           # brightest cell of this z row that has mocks
+        if monotone:                                # fit only from there: empty bright cells are not C = 0
+            row_c[first:] = isotonic_decreasing(row_c[first:])
+        row_c[:first] = row_c[first]                # brighter than the mocks: C of the brightest cell
     z_c, M_c = 0.5 * (z_e[1:] + z_e[:-1]), 0.5 * (M_e[1:] + M_e[:-1])
     interp = RegularGridInterpolator((z_c, M_c), c)
     z_tab = np.linspace(0.0, 20.0, 2001)                       # offset(z) is smooth: tabulate once
@@ -183,8 +189,10 @@ def load_config(config_path, z_bin):
     sel = cfg["selection"]
     sel["z_min"], sel["z_max"] = map(float, zb["z_true"])
     z_drop = round(0.5 * (sel["z_min"] + sel["z_max"]), 2)  # label, seed offset and LF print: centre of z_true
-    cfg["survey"].update(z_bin=z_bin, z_drop=z_drop, z_a_range=[float(v) for v in zb["z_a"]])
+    cfg["survey"].update(z_bin=z_bin, z_drop=z_drop, z_a_range=[float(v) for v in zb["z_a"]],
+                         sky_map_approx=bool(zb.get("sky_map_approx", False)))
     cfg["injection"]["M_UV_bins"] = zb["M_UV_bins"]
+    cfg["paths"].update(zb.get("paths") or {})              # per-bin overrides (a z-bin without maps of its own)
     for key, value in cfg["paths"].items():                 # fill {z_bin} / {z_drop}, make absolute
         if isinstance(value, str):
             cfg["paths"][key] = PROJECT_DIR / value.format(z_drop=z_drop, z_bin=z_bin)
@@ -248,7 +256,10 @@ def main(config_path, z_bin):
     for key, (lo, hi) in (("ZRANGE", (sel["z_min"], sel["z_max"])), ("L4WINDOW", survey["z_a_range"])):
         got = [float(v) for v in str(map_hdr.get(key, "nan-nan")).split("-")]
         if not np.allclose(got, [lo, hi]):
-            raise ValueError(f"{paths['sky_map'].name}: {key} = {map_hdr.get(key)} but parameters.yaml gives {lo}-{hi}")
+            msg = f"{paths['sky_map'].name}: {key} = {map_hdr.get(key)} but parameters.yaml gives {lo}-{hi}"
+            if not survey["sky_map_approx"]:
+                raise ValueError(msg)
+            print(f"sky map used for its spatial pattern only (sky_map_approx): {msg}")
 
     valid = fits.getdata(paths["valid_mask"]).astype(bool) if paths.get("valid_mask") else None
     segm, r_eff = None, None
@@ -359,6 +370,8 @@ def main(config_path, z_bin):
                                                         cosmo_pars, halo_cfg.get("bias_model", "tinker10"))
 
         summary = {"z_bin": survey["z_bin"], "catalog": paths["real_catalog"].name, "z_a_range": survey["z_a_range"],
+                   "completeness_file": paths["completeness"].name, "sky_map": paths["sky_map"].name,
+                   "sky_map_approx": survey["sky_map_approx"],
                    "z_true_range": [sel["z_min"], sel["z_max"]], "z_drop": z_drop, "z_eff": z_eff, "M_UV_bin": [lo, hi], "n_data": n_data[k],
                    "n_random": len(rand), "theta_bins_arcsec": [float(theta_bins[0]), float(theta_bins[-1]),
                                                                  int(acf_cfg["n_theta_bins"])],

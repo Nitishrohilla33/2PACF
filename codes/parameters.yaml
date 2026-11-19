@@ -15,15 +15,36 @@ paths:
   random_catalog_dir: "random_catalogs/"
 
 survey:
-  z_bins:                # one entry per sky-completeness map (folder name = key); z_drop = centre of z_true
-    z7p5_9p5:            # header ZRANGE = 7.50-9.50, L4WINDOW = 8.00-9.50
-      z_a: [8.0, 9.5]    # data: Z_A in [lo, hi)  (= the map's layer-4 window)
-      z_true: [7.5, 9.5] # randoms and N(z): true z range of the mocks
+  z_bins:                # one entry per z-bin (key = name used in outputs/ and summary/); z_drop = centre of z_true
+    # split at z_a = 9.0: the member density drops there (70 per dz = 0.5 at 8.5-9.0, 16 at 9.0-9.5), and
+    # 8.0-9.0 holds most of the clustering signal (narrow photo-z). Neither window has a sky map of its own:
+    #   completeness: built from both maps' mocks by make_zbin_mocks.py (L4 = L3 & Z_A in window, exact)
+    #   sky map: nearest existing map, used for its spatial pattern only (sky_map_approx)
+    z8p0_9p0:
+      z_a: [8.0, 9.0]    # data: Z_A in [lo, hi)
+      z_true: [7.5, 10.0] # randoms and N(z): true z range (mocks passing this window: 99% at z_true < 9.35)
       M_UV_bins: [[-25.0338500740141, -17.3978714456232]]     # absolute M_UV, bright -> faint, contiguous [lo, hi); current values are the min/max
-    z9p5_14p5:           # header ZRANGE = 9.50-14.50, L4WINDOW = 9.50-13.50
-      z_a: [9.5, 13.5]
-      z_true: [9.5, 14.5]
+      paths:
+        completeness: "inputs/depth_maps/derived_zbins/{z_bin}/ceers_skycompleteness_mocks_{z_bin}.fits"
+        sky_map: "inputs/depth_maps/CEERS_SkyCompleteness_zbins/CEERS_SkyCompleteness_zbins/z7p5_9p5/ceers_skycompleteness_z7p5_9p5.fits"  # L4 window 8.0-9.5
+      sky_map_approx: true
+    z9p0_13p5:
+      z_a: [9.0, 13.5]
+      z_true: [8.5, 14.5]
       M_UV_bins: [[-25.0338500740141, -17.3978714456232]]
+      paths:
+        completeness: "inputs/depth_maps/derived_zbins/{z_bin}/ceers_skycompleteness_mocks_{z_bin}.fits"
+        sky_map: "inputs/depth_maps/CEERS_SkyCompleteness_zbins/CEERS_SkyCompleteness_zbins/z9p5_14p5/ceers_skycompleteness_z9p5_14p5.fits"  # L4 window 9.5-13.5
+      sky_map_approx: true
+    # previous bins (one per sky map, no approximation); uncomment to run them again
+    # z7p5_9p5:            # header ZRANGE = 7.50-9.50, L4WINDOW = 8.00-9.50
+    #   z_a: [8.0, 9.5]
+    #   z_true: [7.5, 9.5]
+    #   M_UV_bins: [[-25.0338500740141, -17.3978714456232]]
+    # z9p5_14p5:           # header ZRANGE = 9.50-14.50, L4WINDOW = 9.50-13.50
+    #   z_a: [9.5, 13.5]
+    #   z_true: [9.5, 14.5]
+    #   M_UV_bins: [[-25.0338500740141, -17.3978714456232]]
   z_col: Z_A             # photo-z column used for the z_a window
   ra_col: RA
   dec_col: DEC
@@ -51,7 +72,7 @@ selection:
 acf:
   theta_min_arcsec: 10.0  # log-spaced bins (linear bins biased the first bin by 1.8x)
   theta_max_arcsec: 500.0
-  n_theta_bins: 5        # 20 -> 8: with 20-65 galaxies per bin most of 20 bins have DD = 0
+  n_theta_bins: 3        # 20 -> 8: with 20-65 galaxies per bin most of 20 bins have DD = 0
   beta: 0.6
   n_bootstrap: 200
   min_RR_counts: 20
